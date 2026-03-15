@@ -4,13 +4,15 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 fn default_volume() -> f32 {
-    0.75
+    1.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputStripConfig {
     #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    pub represented_node_name: String,
     #[serde(default = "default_volume")]
     pub volume: f32,
     #[serde(default)]
@@ -23,7 +25,8 @@ impl InputStripConfig {
     pub fn new(name: String, output_count: usize) -> Self {
         Self {
             name,
-            volume: 0.75,
+            represented_node_name: String::new(),
+            volume: 1.0,
             placeholder_meter: 0.0,
             routes_to_outputs: vec![false; output_count],
         }
@@ -34,6 +37,8 @@ impl InputStripConfig {
 pub struct OutputStripConfig {
     #[serde(default)]
     pub name: String,
+    #[serde(default)]
+    pub represented_node_name: String,
     #[serde(default = "default_volume")]
     pub volume: f32,
     #[serde(default)]
@@ -44,7 +49,8 @@ impl OutputStripConfig {
     pub fn new(name: String) -> Self {
         Self {
             name,
-            volume: 0.75,
+            represented_node_name: String::new(),
+            volume: 1.0,
             placeholder_meter: 0.0,
         }
     }

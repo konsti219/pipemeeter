@@ -6,7 +6,6 @@ pub struct PwNode {
     pub name: String,
     pub description: Option<String>,
     pub nick: Option<String>,
-    pub application_name: Option<String>,
     pub media_class: Option<String>,
     pub category: PwNodeCategory,
     pub media_name: Option<String>,
@@ -24,16 +23,6 @@ pub enum PwNodeCategory {
     PlaybackStream,
     RecordingStream,
     Other,
-}
-
-impl PwNodeCategory {
-    pub fn direction(&self) -> PortDirection {
-        match self {
-            PwNodeCategory::OutputDevice | PwNodeCategory::PlaybackStream => PortDirection::In,
-            PwNodeCategory::InputDevice | PwNodeCategory::RecordingStream => PortDirection::Out,
-            PwNodeCategory::Other => PortDirection::Out, // default to out direction, because it is likely to be a monitor stream
-        }
-    }
 }
 
 // Media Classes:
@@ -110,7 +99,6 @@ pub(super) fn handle_node_global(
         name: props.get(&pw::keys::NODE_NAME).unwrap().to_owned(),
         description: props.get(&pw::keys::NODE_DESCRIPTION).owned(),
         nick: props.get(&pw::keys::NODE_NICK).owned(),
-        application_name: props.get(&APP_NAME).owned(),
         media_class: props.get(&MEDIA_CLASS).owned(),
         category: classify_media_class(props.get(&MEDIA_CLASS)),
         media_name: None, // never in the static properties
