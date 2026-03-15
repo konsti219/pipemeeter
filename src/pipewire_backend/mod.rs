@@ -15,8 +15,10 @@ use pw::types::ObjectType;
 
 mod node;
 pub use node::*;
+mod device;
+use device::*;
 mod pod;
-pub use pod::*;
+use pod::*;
 mod port;
 pub use port::*;
 mod worker;
@@ -42,6 +44,7 @@ pub struct PwDevice {
     pub name: String,
     pub nick: String,
     pub media_class: String,
+    pub routes: Vec<PwDeviceRoute>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +94,7 @@ pub enum PwObject {
 }
 
 enum PwProxy {
+    Device(pw::device::Device, pw::device::DeviceListener),
     Node(pw::node::Node, pw::node::NodeListener),
     Port(pw::port::Port, pw::port::PortListener),
 }
@@ -109,6 +113,11 @@ fn create_mainloop() -> Result<(pw::main_loop::MainLoopRc, pw::core::CoreRc)> {
 enum BackendCommand {
     CreateVirtualDevice {
         name: String,
+        reply: mpsc::Sender<Result<()>>,
+    },
+    SetNodeVolume {
+        node_id: u32,
+        volume: f32,
         reply: mpsc::Sender<Result<()>>,
     },
     RemoveVirtualDevice {
@@ -184,6 +193,14 @@ impl PipewireBackend {
 
     pub fn remove_virtual_device(&self, name: String) -> Result<()> {
         self.request(|reply| BackendCommand::RemoveVirtualDevice { name, reply })
+    }
+
+    pub fn set_node_volume(&self, node_id: u32, volume: f32) -> Result<()> {
+        self.request(|reply| BackendCommand::SetNodeVolume {
+            node_id,
+            volume,
+            reply,
+        })
     }
 }
 

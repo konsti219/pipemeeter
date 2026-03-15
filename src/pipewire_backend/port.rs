@@ -20,7 +20,7 @@ pub struct PwPort {
     pub physical: Option<bool>,
 }
 
-pub fn handle_port_global(
+pub(super) fn handle_port_global(
     global: &pw::registry::GlobalObject<&pw::spa::utils::dict::DictRef>,
     props: &pw::spa::utils::dict::DictRef,
     objects: &mut PwState,

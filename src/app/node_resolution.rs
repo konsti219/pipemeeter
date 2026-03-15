@@ -54,6 +54,10 @@ fn resolve_group<'a, I, F>(
 }
 
 impl PipeMeeterApp {
+    pub(super) fn resolved_node_id(&self, target: StripTarget) -> Option<u32> {
+        self.resolved_nodes.get(&target).map(|node| node.id)
+    }
+
     pub(super) fn resolved_node_title(&self, target: StripTarget) -> Option<String> {
         self.resolved_nodes
             .get(&target)

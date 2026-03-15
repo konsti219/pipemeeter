@@ -90,7 +90,9 @@ impl PipeMeeterApp {
                     let target = StripTarget::Input { group, index };
                     let resolved_node_title = self.resolved_node_title(target);
                     let resolved_slider_value = self.resolved_volume_slider_value(target);
+                    let resolved_node_id = self.resolved_node_id(target);
                     let mut open_dialog = false;
+                    let mut changed_volume = None;
 
                     let strip = match group {
                         Group::Physical => &mut self.config.physical_inputs[index],
@@ -127,9 +129,14 @@ impl PipeMeeterApp {
                             draw_placeholder_meter(ui, strip.placeholder_meter, 160.0);
                             let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
                             let slider = egui::Slider::new(&mut slider_value, 0.0..=1.0)
+                                .step_by(0.05)
                                 .vertical()
                                 .show_value(false);
-                            ui.add_enabled(false, slider);
+                            if ui.add(slider).changed() {
+                                strip.volume = slider_value;
+                                changed_volume = Some(slider_value);
+                                *dirty = true;
+                            }
 
                             if output_labels.is_empty() {
                                 ui.label("No outputs");
@@ -154,6 +161,18 @@ impl PipeMeeterApp {
                         ui.separator();
                     }
 
+                    if let Some(volume) = changed_volume {
+                        if let Some(node_id) = resolved_node_id {
+                            let linear = super::volume::human_slider_to_pipewire_linear(volume);
+                            if let Err(err) = self.backend.set_node_volume(node_id, linear) {
+                                self.status = format!(
+                                    "failed to set input volume for node #{}: {err}",
+                                    node_id
+                                );
+                            }
+                        }
+                    }
+
                     if open_dialog {
                         self.open_edit_dialog(target);
                     }
@@ -167,7 +186,7 @@ impl PipeMeeterApp {
         ui: &mut egui::Ui,
         title: &str,
         group: Group,
-        _dirty: &mut bool,
+        dirty: &mut bool,
     ) {
         let len = match group {
             Group::Physical => self.config.physical_outputs.len(),
@@ -191,7 +210,9 @@ impl PipeMeeterApp {
                     let target = StripTarget::Output { group, index };
                     let resolved_node_title = self.resolved_node_title(target);
                     let resolved_slider_value = self.resolved_volume_slider_value(target);
+                    let resolved_node_id = self.resolved_node_id(target);
                     let mut open_dialog = false;
+                    let mut changed_volume = None;
 
                     let strip = match group {
                         Group::Physical => &mut self.config.physical_outputs[index],
@@ -228,14 +249,31 @@ impl PipeMeeterApp {
                             draw_placeholder_meter(ui, strip.placeholder_meter, 160.0);
                             let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
                             let slider = egui::Slider::new(&mut slider_value, 0.0..=1.0)
+                                .step_by(0.05)
                                 .vertical()
                                 .show_value(false);
-                            ui.add_enabled(false, slider);
+                            if ui.add(slider).changed() {
+                                strip.volume = slider_value;
+                                changed_volume = Some(slider_value);
+                                *dirty = true;
+                            }
                         });
                     });
 
                     if index != len - 1 {
                         ui.separator();
+                    }
+
+                    if let Some(volume) = changed_volume {
+                        if let Some(node_id) = resolved_node_id {
+                            let linear = super::volume::human_slider_to_pipewire_linear(volume);
+                            if let Err(err) = self.backend.set_node_volume(node_id, linear) {
+                                self.status = format!(
+                                    "failed to set output volume for node #{}: {err}",
+                                    node_id
+                                );
+                            }
+                        }
                     }
 
                     if open_dialog {

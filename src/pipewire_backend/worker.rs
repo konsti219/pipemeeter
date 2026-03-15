@@ -75,24 +75,13 @@ pub fn pipewire_worker(
                         objects.insert(global.id, PwObject::Core);
                     }
                     ObjectType::Device => {
-                        let factory_id = props.get(&FACTORY_ID).unwrap().parse::<u32>().unwrap();
-                        let client_id = props.get(&CLIENT_ID).unwrap().parse::<u32>().unwrap();
-                        let device_api = props.get(&DEVICE_API).unwrap().to_owned();
-                        let description = props.get(&DEVICE_DESCRIPTION).unwrap().to_owned();
-                        let name = props.get(&DEVICE_NAME).unwrap().to_owned();
-                        let nick = props.get(&DEVICE_NICK).unwrap().to_owned();
-                        let media_class = props.get(&MEDIA_CLASS).unwrap().to_owned();
-                        objects.insert(
-                            global.id,
-                            PwObject::Device(PwDevice {
-                                factory_id,
-                                client_id,
-                                device_api,
-                                description,
-                                name,
-                                nick,
-                                media_class,
-                            }),
+                        handle_device_global(
+                            global,
+                            props,
+                            &mut objects,
+                            &objects_add,
+                            &registry_add,
+                            &proxies_add,
                         );
                     }
                     ObjectType::Factory => {
@@ -190,6 +179,16 @@ pub fn pipewire_worker(
         let _cmd_source = cmd_rx.attach(mainloop.loop_(), move |cmd| match cmd {
             BackendCommand::CreateVirtualDevice { name, reply } => {
                 send_reply(reply, create_virtual_device_impl(&core, &name));
+            }
+            BackendCommand::SetNodeVolume {
+                node_id,
+                volume,
+                reply,
+            } => {
+                send_reply(
+                    reply,
+                    set_node_volume_impl(&objects, &proxies, node_id, volume),
+                );
             }
             BackendCommand::RemoveVirtualDevice { name, reply } => {
                 send_reply(

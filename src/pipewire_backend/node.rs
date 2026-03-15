@@ -163,6 +163,73 @@ pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result
     Ok(())
 }
 
+pub(super) fn set_node_volume_impl(
+    objects: &Arc<Mutex<PwState>>,
+    proxies: &Rc<RefCell<PwProxies>>,
+    node_id: u32,
+    volume: f32,
+) -> Result<()> {
+    let volume = volume.max(0.0);
+    let param_bytes = build_node_volume_props_param([volume, volume])?;
+    let param = pw::spa::pod::Pod::from_bytes(&param_bytes)
+        .context("failed to build props pod for volume command")?;
+
+    info!(
+        "issuing PipeWire command: set node volume id={} volume={:.3}",
+        node_id, volume
+    );
+
+    let proxies_ref = proxies.borrow();
+    let proxy = match proxies_ref.get(&node_id) {
+        Some(PwProxy::Device(_, _)) => {
+            bail!("object id={} is not a node", node_id);
+        }
+        Some(PwProxy::Node(node, _listener)) => node,
+        Some(PwProxy::Port(_, _)) => {
+            bail!("object id={} is not a node", node_id);
+        }
+        None => {
+            bail!("node id={} not found", node_id);
+        }
+    };
+
+    proxy.set_param(ParamType::Props, 0, param);
+
+    let (device_id, device_routes) = {
+        let state = objects.lock().unwrap();
+        let Some(PwObject::Node(node)) = state.get(&node_id) else {
+            return Ok(());
+        };
+        let Some(device_id) = node.device_id else {
+            return Ok(());
+        };
+        let Some(PwObject::Device(device)) = state.get(&device_id) else {
+            return Ok(());
+        };
+        (device_id, device.routes.clone())
+    };
+
+    if device_routes.is_empty() {
+        return Ok(());
+    }
+
+    let device_proxy = match proxies_ref.get(&device_id) {
+        Some(PwProxy::Device(device, _listener)) => device,
+        _ => {
+            return Ok(());
+        }
+    };
+
+    for route in device_routes {
+        let route_param_bytes = build_device_route_volume_param(route, [volume, volume])?;
+        let route_param = pw::spa::pod::Pod::from_bytes(&route_param_bytes)
+            .context("failed to build route pod for volume command")?;
+        device_proxy.set_param(ParamType::Route, 0, route_param);
+    }
+
+    Ok(())
+}
+
 pub fn node_matches_virtual_device(node: &PwNode, name: &str) -> bool {
     let prefixed_name = format!("pipemeeter/{}", name);
 
