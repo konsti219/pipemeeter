@@ -7,7 +7,8 @@ use super::{Group, PipeMeeterApp, StripTarget};
 fn draw_strip_header(
     ui: &mut egui::Ui,
     strip_name: &str,
-    resolved_node_title: Option<&str>,
+    node_title: Option<&str>,
+    unresolved: bool,
 ) -> bool {
     let mut open_dialog = false;
 
@@ -24,9 +25,36 @@ fn draw_strip_header(
         });
     });
 
-    if let Some(node_title) = resolved_node_title {
-        ui.small(node_title);
-    }
+    let node_title = node_title.unwrap_or("");
+    let node_title_height = ui.text_style_height(&egui::TextStyle::Body) * 2.0;
+    let width = ui.available_width();
+    let (rect, _) =
+        ui.allocate_exact_size(egui::vec2(width, node_title_height), egui::Sense::hover());
+    let mut layout_job = egui::text::LayoutJob::default();
+    layout_job.append(
+        node_title,
+        0.0,
+        egui::TextFormat {
+            color: if unresolved {
+                egui::Color32::RED
+            } else {
+                ui.visuals().text_color()
+            },
+            ..egui::TextFormat::default()
+        },
+    );
+    layout_job.wrap.max_width = width;
+    layout_job.wrap.max_rows = 2;
+    let galley = ui.painter().layout_job(layout_job);
+    ui.painter().with_clip_rect(rect).galley(
+        rect.min,
+        galley,
+        if unresolved {
+            egui::Color32::RED
+        } else {
+            ui.visuals().text_color()
+        },
+    );
 
     open_dialog
 }
@@ -69,10 +97,27 @@ impl PipeMeeterApp {
                         Group::Virtual => &mut self.config.virtual_inputs[index],
                     };
 
+                    let unresolved_node_name = if resolved_node_title.is_none() {
+                        let expected = strip.represented_node_name.trim();
+                        if expected.is_empty() {
+                            None
+                        } else {
+                            Some(expected)
+                        }
+                    } else {
+                        None
+                    };
+
                     ui.vertical(|ui| {
                         ui.set_width(150.0);
 
-                        if draw_strip_header(ui, &strip.name, resolved_node_title.as_deref()) {
+                        let header_title = resolved_node_title.as_deref().or(unresolved_node_name);
+                        if draw_strip_header(
+                            ui,
+                            &strip.name,
+                            header_title,
+                            unresolved_node_name.is_some(),
+                        ) {
                             open_dialog = true;
                         }
                         ui.separator();
@@ -153,10 +198,27 @@ impl PipeMeeterApp {
                         Group::Virtual => &mut self.config.virtual_outputs[index],
                     };
 
+                    let unresolved_node_name = if resolved_node_title.is_none() {
+                        let expected = strip.represented_node_name.trim();
+                        if expected.is_empty() {
+                            None
+                        } else {
+                            Some(expected)
+                        }
+                    } else {
+                        None
+                    };
+
                     ui.vertical(|ui| {
                         ui.set_width(100.0);
 
-                        if draw_strip_header(ui, &strip.name, resolved_node_title.as_deref()) {
+                        let header_title = resolved_node_title.as_deref().or(unresolved_node_name);
+                        if draw_strip_header(
+                            ui,
+                            &strip.name,
+                            header_title,
+                            unresolved_node_name.is_some(),
+                        ) {
                             open_dialog = true;
                         }
                         ui.separator();

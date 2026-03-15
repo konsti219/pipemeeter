@@ -87,7 +87,7 @@ impl PipeMeeterApp {
                 let has_represented_name = !dialog.draft_represented_node_name.trim().is_empty();
 
                 if has_represented_name {
-                    egui::CollapsingHeader::new("Filtered node list")
+                    egui::CollapsingHeader::new("Available nodes")
                         .default_open(false)
                         .show(ui, |ui| {
                             Self::draw_node_picker_list(
@@ -97,7 +97,7 @@ impl PipeMeeterApp {
                                 "filtered_nodes_collapsed",
                             );
                             ui.add_space(6.0);
-                            egui::CollapsingHeader::new("Unfiltered node list")
+                            egui::CollapsingHeader::new("All nodes")
                                 .default_open(false)
                                 .show(ui, |ui| {
                                     Self::draw_node_picker_list(
@@ -109,7 +109,7 @@ impl PipeMeeterApp {
                                 });
                         });
                 } else {
-                    ui.label("Filtered node list");
+                    ui.label("Available nodes");
                     Self::draw_node_picker_list(
                         ui,
                         &filtered_nodes,
@@ -117,7 +117,7 @@ impl PipeMeeterApp {
                         "filtered_nodes_visible",
                     );
                     ui.add_space(6.0);
-                    egui::CollapsingHeader::new("Unfiltered node list")
+                    egui::CollapsingHeader::new("All nodes")
                         .default_open(false)
                         .show(ui, |ui| {
                             Self::draw_node_picker_list(
