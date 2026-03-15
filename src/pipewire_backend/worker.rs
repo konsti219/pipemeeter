@@ -1,0 +1,212 @@
+use super::*;
+
+pub fn pipewire_worker(
+    objects: Arc<Mutex<PwState>>,
+    cmd_rx: pw::channel::Receiver<BackendCommand>,
+    ready_tx: mpsc::Sender<Result<()>>,
+) -> JoinHandle<Result<()>> {
+    thread::spawn(move || {
+        let (mainloop, core) = match create_mainloop() {
+            Ok(v) => v,
+            Err(err) => {
+                let _ = ready_tx.send(Err(err));
+                return Ok(());
+            }
+        };
+        let registry = match core.get_registry_rc() {
+            Ok(v) => v,
+            Err(err) => {
+                let _ = ready_tx.send(Err(err.into()));
+                return Ok(());
+            }
+        };
+
+        let proxies = Rc::new(RefCell::new(PwProxies::new()));
+
+        let _core_listener = core
+            .add_listener_local()
+            .info(move |message| {
+                info!("{message:?}");
+            })
+            .error(move |id, seq, res, message| {
+                if message.starts_with("enum params") && message.ends_with("failed") {
+                    // random errors
+                    return;
+                }
+                error!("{id} seq={seq} res={res}: {message}");
+            })
+            .done(move |id, seq| {
+                info!("worker done: id={id} seq={seq:?}");
+            })
+            .register();
+
+        let objects_add = objects.clone();
+        let proxies_add = proxies.clone();
+        let registry_add = registry.clone();
+        let objects_remove = objects.clone();
+        let proxies_remove = proxies.clone();
+
+        let _registry_listener = registry
+            .add_listener_local()
+            .global(move |global| {
+                let Some(props) = global.props else {
+                    return;
+                };
+
+                // info!(
+                //     "object added: id={} type={} props={:?}",
+                //     global.id, global.type_, props
+                // );
+
+                let mut objects = objects_add.lock().unwrap();
+                match global.type_ {
+                    ObjectType::Client => {
+                        let module_id = props.get(&MODULE_ID).unwrap().parse::<u32>().unwrap();
+                        let application_name = props.get(&APP_NAME).unwrap().to_owned();
+                        objects.insert(
+                            global.id,
+                            PwObject::Client(PwClient {
+                                module_id,
+                                application_name,
+                            }),
+                        );
+                    }
+                    ObjectType::Core => {
+                        objects.insert(global.id, PwObject::Core);
+                    }
+                    ObjectType::Device => {
+                        let factory_id = props.get(&FACTORY_ID).unwrap().parse::<u32>().unwrap();
+                        let client_id = props.get(&CLIENT_ID).unwrap().parse::<u32>().unwrap();
+                        let device_api = props.get(&DEVICE_API).unwrap().to_owned();
+                        let description = props.get(&DEVICE_DESCRIPTION).unwrap().to_owned();
+                        let name = props.get(&DEVICE_NAME).unwrap().to_owned();
+                        let nick = props.get(&DEVICE_NICK).unwrap().to_owned();
+                        let media_class = props.get(&MEDIA_CLASS).unwrap().to_owned();
+                        objects.insert(
+                            global.id,
+                            PwObject::Device(PwDevice {
+                                factory_id,
+                                client_id,
+                                device_api,
+                                description,
+                                name,
+                                nick,
+                                media_class,
+                            }),
+                        );
+                    }
+                    ObjectType::Factory => {
+                        let name = props.get("factory.name").unwrap().to_owned();
+                        let type_name = props.get("factory.type.name").unwrap().to_owned();
+                        let module_id = props.get("module.id").unwrap().parse::<u32>().unwrap();
+                        objects.insert(
+                            global.id,
+                            PwObject::Factory(PwFactory {
+                                name,
+                                type_name,
+                                module_id,
+                            }),
+                        );
+                    }
+                    ObjectType::Metadata => {
+                        let name = props.get("metadata.name").unwrap().to_owned();
+                        objects.insert(global.id, PwObject::Metadata(name));
+                    }
+                    ObjectType::Module => {
+                        let name = props.get("module.name").unwrap().to_owned();
+                        objects.insert(global.id, PwObject::Module(name));
+                    }
+                    ObjectType::Node => {
+                        handle_node_global(
+                            global,
+                            props,
+                            &mut objects,
+                            &objects_add,
+                            &registry_add,
+                            &proxies_add,
+                        );
+                    }
+                    ObjectType::Port => {
+                        handle_port_global(
+                            global,
+                            props,
+                            &mut objects,
+                            &objects_add,
+                            &registry_add,
+                            &proxies_add,
+                        );
+                    }
+                    ObjectType::Profiler => {
+                        objects.insert(global.id, PwObject::Profiler);
+                    }
+                    ObjectType::Link => {
+                        let client_id = props.get(&CLIENT_ID).unwrap().parse::<u32>().unwrap();
+                        let input_node =
+                            props.get(&LINK_INPUT_NODE).unwrap().parse::<u32>().unwrap();
+                        let input_port =
+                            props.get(&LINK_INPUT_PORT).unwrap().parse::<u32>().unwrap();
+                        let output_node = props
+                            .get(&LINK_OUTPUT_NODE)
+                            .unwrap()
+                            .parse::<u32>()
+                            .unwrap();
+                        let output_port = props
+                            .get(&LINK_OUTPUT_PORT)
+                            .unwrap()
+                            .parse::<u32>()
+                            .unwrap();
+
+                        objects.insert(
+                            global.id,
+                            PwObject::Link(PwLink {
+                                client_id,
+                                input_node,
+                                input_port,
+                                output_node,
+                                output_port,
+                            }),
+                        );
+                    }
+                    _ => {
+                        warn!("unhandled object type: {}", global.type_);
+                    }
+                }
+            })
+            .global_remove(move |id| {
+                let mut objects = objects_remove.lock().unwrap();
+                if let Some(_object) = objects.remove(&id) {
+                    // info!("object removed: id={} object={:?}", id, _object);
+                } else {
+                    warn!("object removed but not found in state: id={id}");
+                }
+                proxies_remove.borrow_mut().remove(&id);
+            })
+            .register();
+
+        let cmd_mainloop = mainloop.clone();
+
+        // This receiver is attached to PipeWire's loop and wakes it through an internal pipe,
+        // so frontend commands are processed even when no PipeWire graph events occur.
+        let _cmd_source = cmd_rx.attach(mainloop.loop_(), move |cmd| match cmd {
+            BackendCommand::CreateVirtualDevice { name, reply } => {
+                send_reply(reply, create_virtual_device_impl(&core, &name));
+            }
+            BackendCommand::RemoveVirtualDevice { name, reply } => {
+                send_reply(
+                    reply,
+                    remove_virtual_device_impl(&registry, &objects, &name),
+                );
+            }
+            BackendCommand::Shutdown { reply } => {
+                send_reply(reply, Ok(()));
+                cmd_mainloop.quit();
+            }
+        });
+
+        let _ = ready_tx.send(Ok(()));
+        mainloop.run();
+        info!("PipeWire worker thread exiting");
+
+        Ok(())
+    })
+}
