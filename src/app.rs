@@ -2,6 +2,7 @@ mod dialog_ui;
 mod node_resolution;
 mod strip_ui;
 mod types;
+mod volume;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -140,11 +141,15 @@ impl PipeMeeterApp {
         match group {
             Group::Physical => {
                 let name = Self::default_output_name(group, self.config.physical_outputs.len());
-                self.config.physical_outputs.push(OutputStripConfig::new(name));
+                self.config
+                    .physical_outputs
+                    .push(OutputStripConfig::new(name));
             }
             Group::Virtual => {
                 let name = Self::default_output_name(group, self.config.virtual_outputs.len());
-                self.config.virtual_outputs.push(OutputStripConfig::new(name));
+                self.config
+                    .virtual_outputs
+                    .push(OutputStripConfig::new(name));
             }
         }
 

@@ -61,6 +61,7 @@ impl PipeMeeterApp {
                 for index in 0..len {
                     let target = StripTarget::Input { group, index };
                     let resolved_node_title = self.resolved_node_title(target);
+                    let resolved_slider_value = self.resolved_volume_slider_value(target);
                     let mut open_dialog = false;
 
                     let strip = match group {
@@ -79,12 +80,11 @@ impl PipeMeeterApp {
 
                         ui.horizontal(|ui| {
                             draw_placeholder_meter(ui, strip.placeholder_meter, 160.0);
-                            let slider = egui::Slider::new(&mut strip.volume, 0.0..=1.0)
+                            let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
+                            let slider = egui::Slider::new(&mut slider_value, 0.0..=1.0)
                                 .vertical()
                                 .show_value(false);
-                            if ui.add(slider).changed() {
-                                *dirty = true;
-                            }
+                            ui.add_enabled(false, slider);
 
                             if output_labels.is_empty() {
                                 ui.label("No outputs");
@@ -122,7 +122,7 @@ impl PipeMeeterApp {
         ui: &mut egui::Ui,
         title: &str,
         group: Group,
-        dirty: &mut bool,
+        _dirty: &mut bool,
     ) {
         let len = match group {
             Group::Physical => self.config.physical_outputs.len(),
@@ -145,6 +145,7 @@ impl PipeMeeterApp {
                 for index in 0..len {
                     let target = StripTarget::Output { group, index };
                     let resolved_node_title = self.resolved_node_title(target);
+                    let resolved_slider_value = self.resolved_volume_slider_value(target);
                     let mut open_dialog = false;
 
                     let strip = match group {
@@ -163,12 +164,11 @@ impl PipeMeeterApp {
 
                         ui.horizontal(|ui| {
                             draw_placeholder_meter(ui, strip.placeholder_meter, 160.0);
-                            let slider = egui::Slider::new(&mut strip.volume, 0.0..=1.0)
+                            let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
+                            let slider = egui::Slider::new(&mut slider_value, 0.0..=1.0)
                                 .vertical()
                                 .show_value(false);
-                            if ui.add(slider).changed() {
-                                *dirty = true;
-                            }
+                            ui.add_enabled(false, slider);
                         });
                     });
 

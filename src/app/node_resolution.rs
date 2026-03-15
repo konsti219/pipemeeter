@@ -60,6 +60,16 @@ impl PipeMeeterApp {
             .map(|node| format!("#{} {}", node.id, node.display_text))
     }
 
+    pub(super) fn resolved_volume_slider_value(&self, target: StripTarget) -> Option<f32> {
+        let resolved = self.resolved_nodes.get(&target)?;
+        let objects = self.backend.objects.lock().unwrap();
+        let PwObject::Node(node) = objects.get(&resolved.id)? else {
+            return None;
+        };
+
+        Some(super::volume::pipewire_stereo_to_human_slider(node.volume))
+    }
+
     pub(super) fn refresh_resolved_nodes(&mut self) {
         let objects = self.backend.objects.lock().unwrap();
         let mut nodes = objects
