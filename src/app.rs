@@ -1,11 +1,13 @@
 mod dialog_ui;
 mod node_resolution;
+mod routing;
 mod strip_ui;
 mod types;
 mod volume;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use eframe::egui;
 use log::error;
@@ -27,6 +29,7 @@ pub struct PipeMeeterApp {
     status: String,
     edit_dialog: Option<EditDialogState>,
     last_viewport_size: Option<egui::Vec2>,
+    last_routing_sync: Option<Instant>,
 }
 
 impl PipeMeeterApp {
@@ -61,6 +64,7 @@ impl PipeMeeterApp {
             status: "UI-only setup mode (backend disabled)".to_owned(),
             edit_dialog: None,
             last_viewport_size: None,
+            last_routing_sync: None,
         }
     }
 
@@ -320,6 +324,7 @@ impl eframe::App for PipeMeeterApp {
         apply_voicemeeter_like_theme(ctx);
         self.apply_viewport_size(ctx);
         self.refresh_resolved_nodes();
+        self.maybe_sync_audio_routing();
 
         let mut dirty = false;
         let output_labels = self.config.output_labels();

@@ -144,6 +144,7 @@ pub fn pipewire_worker(
                             .unwrap()
                             .parse::<u32>()
                             .unwrap();
+                        let managed_by_pipemeeter = props.get("pipemeeter.managed").is_some();
 
                         objects.insert(
                             global.id,
@@ -153,6 +154,7 @@ pub fn pipewire_worker(
                                 input_port,
                                 output_node,
                                 output_port,
+                                managed_by_pipemeeter,
                             }),
                         );
                     }
@@ -177,8 +179,11 @@ pub fn pipewire_worker(
         // This receiver is attached to PipeWire's loop and wakes it through an internal pipe,
         // so frontend commands are processed even when no PipeWire graph events occur.
         let _cmd_source = cmd_rx.attach(mainloop.loop_(), move |cmd| match cmd {
-            BackendCommand::CreateVirtualDevice { name, reply } => {
-                send_reply(reply, create_virtual_device_impl(&core, &name));
+            BackendCommand::SyncManagedVirtualDevices { names, reply } => {
+                send_reply(
+                    reply,
+                    sync_managed_virtual_devices_impl(&core, &registry, &objects, &names),
+                );
             }
             BackendCommand::SetNodeVolume {
                 node_id,
@@ -190,13 +195,23 @@ pub fn pipewire_worker(
                     set_node_volume_impl(&objects, &proxies, node_id, volume),
                 );
             }
-            BackendCommand::RemoveVirtualDevice { name, reply } => {
+            BackendCommand::SyncRouting { links, reply } => {
+                send_reply(reply, sync_routing_impl(&core, &registry, &objects, &links));
+            }
+            BackendCommand::CleanupManagedObjects { reply } => {
                 send_reply(
                     reply,
-                    remove_virtual_device_impl(&registry, &objects, &name),
+                    remove_managed_links_impl(&registry, &objects)
+                        .and_then(|_| remove_managed_virtual_devices_impl(&registry, &objects)),
                 );
             }
             BackendCommand::Shutdown { reply } => {
+                if let Err(err) = remove_managed_links_impl(&registry, &objects) {
+                    error!("failed to cleanup managed links on shutdown: {err}");
+                }
+                if let Err(err) = remove_managed_virtual_devices_impl(&registry, &objects) {
+                    error!("failed to cleanup managed virtual devices on shutdown: {err}");
+                }
                 send_reply(reply, Ok(()));
                 cmd_mainloop.quit();
             }

@@ -15,6 +15,11 @@ use pw::types::ObjectType;
 
 mod node;
 pub use node::*;
+mod routing_graph;
+use routing_graph::*;
+mod virtual_device;
+pub use virtual_device::MANAGED_VIRTUAL_STRIP_PREFIX;
+use virtual_device::*;
 mod device;
 use device::*;
 mod pod;
@@ -61,6 +66,13 @@ pub struct PwLink {
     pub input_port: u32,
     pub output_node: u32,
     pub output_port: u32,
+    pub managed_by_pipemeeter: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DesiredNodeLink {
+    pub output_node: u32,
+    pub input_node: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,8 +123,8 @@ fn create_mainloop() -> Result<(pw::main_loop::MainLoopRc, pw::core::CoreRc)> {
 }
 
 enum BackendCommand {
-    CreateVirtualDevice {
-        name: String,
+    SyncManagedVirtualDevices {
+        names: Vec<String>,
         reply: mpsc::Sender<Result<()>>,
     },
     SetNodeVolume {
@@ -120,8 +132,11 @@ enum BackendCommand {
         volume: f32,
         reply: mpsc::Sender<Result<()>>,
     },
-    RemoveVirtualDevice {
-        name: String,
+    SyncRouting {
+        links: Vec<DesiredNodeLink>,
+        reply: mpsc::Sender<Result<()>>,
+    },
+    CleanupManagedObjects {
         reply: mpsc::Sender<Result<()>>,
     },
     Shutdown {
@@ -187,12 +202,8 @@ impl PipewireBackend {
         }
     }
 
-    pub fn create_virtual_device(&self, name: String) -> Result<()> {
-        self.request(|reply| BackendCommand::CreateVirtualDevice { name, reply })
-    }
-
-    pub fn remove_virtual_device(&self, name: String) -> Result<()> {
-        self.request(|reply| BackendCommand::RemoveVirtualDevice { name, reply })
+    pub fn sync_managed_virtual_devices(&self, names: Vec<String>) -> Result<()> {
+        self.request(|reply| BackendCommand::SyncManagedVirtualDevices { names, reply })
     }
 
     pub fn set_node_volume(&self, node_id: u32, volume: f32) -> Result<()> {
@@ -201,6 +212,14 @@ impl PipewireBackend {
             volume,
             reply,
         })
+    }
+
+    pub fn sync_routing(&self, links: Vec<DesiredNodeLink>) -> Result<()> {
+        self.request(|reply| BackendCommand::SyncRouting { links, reply })
+    }
+
+    pub fn cleanup_managed_objects(&self) -> Result<()> {
+        self.request(|reply| BackendCommand::CleanupManagedObjects { reply })
     }
 }
 

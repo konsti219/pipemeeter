@@ -15,6 +15,8 @@ pub struct PwNode {
     pub device_id: Option<u32>,
     pub process_binary: Option<String>,
     pub volume: [f32; 2],
+    pub managed_by_pipemeeter: bool,
+    pub managed_device_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -108,6 +110,11 @@ pub(super) fn handle_node_global(
         device_id: props.get(&DEVICE_ID).map(|v| v.parse::<u32>().unwrap()),
         process_binary: None,
         volume: [1.0, 1.0],
+        managed_by_pipemeeter: props
+            .get("pipemeeter.managed")
+            .map(|value| value == "true")
+            .unwrap_or(false),
+        managed_device_name: props.get("pipemeeter.device-name").owned(),
     };
     objects.insert(global.id, PwObject::Node(node));
     proxies
@@ -192,82 +199,6 @@ pub(super) fn set_node_volume_impl(
         let route_param = pw::spa::pod::Pod::from_bytes(&route_param_bytes)
             .context("failed to build route pod for volume command")?;
         device_proxy.set_param(ParamType::Route, 0, route_param);
-    }
-
-    Ok(())
-}
-
-pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result<()> {
-    let node_factory = "adapter";
-    let name = format!("pipemeeter/{}", name);
-
-    info!(
-        "issuing PipeWire command: create virtual device name='{}' node_factory='{}'",
-        name, node_factory
-    );
-
-    let _node = core
-        .create_object::<pw::node::Node>(
-            node_factory,
-            &properties! {
-                "factory.name" => "support.null-audio-sink",
-                "node.name" => name.as_str(),
-                "node.description" => name.as_str(),
-                "media.type" => "Audio",
-                "media.class" => "Audio/Duplex/Virtual",
-                "audio.channels" => "2",
-                "audio.position" => "FL FR",
-                "monitor.channel-volumes" => "true",
-                "object.linger" => "true",
-                "pipemeeter.managed" => "true",
-                "pipemeeter.device-name" => name.as_str(),
-            },
-        )
-        .context("failed to create virtual device")?;
-
-    Ok(())
-}
-
-pub fn node_matches_virtual_device(node: &PwNode, name: &str) -> bool {
-    let prefixed_name = format!("pipemeeter/{}", name);
-
-    node.name == name
-        || node.name == prefixed_name
-        || node.description.as_deref() == Some(name)
-        || node.nick.as_deref() == Some(name)
-}
-
-pub fn remove_virtual_device_impl(
-    registry: &pw::registry::RegistryRc,
-    objects: &Arc<Mutex<PwState>>,
-    name: &str,
-) -> Result<()> {
-    let candidate_ids = {
-        let state = objects.lock().unwrap();
-        state
-            .iter()
-            .filter_map(|(id, obj)| match obj {
-                PwObject::Node(node) if node_matches_virtual_device(node, name) => Some(*id),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    };
-
-    if candidate_ids.is_empty() {
-        return Ok(());
-    }
-
-    let mut removed_any = false;
-    for id in candidate_ids {
-        registry
-            .destroy_global(id)
-            .into_result()
-            .with_context(|| format!("failed to destroy node id={}", id))?;
-        removed_any = true;
-    }
-
-    if !removed_any {
-        bail!("virtual device not found in PipeWire");
     }
 
     Ok(())
