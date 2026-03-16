@@ -74,6 +74,27 @@ fn draw_strip_header(
     open_dialog
 }
 
+fn draw_slider_knob_percentage(ui: &egui::Ui, slider_rect: egui::Rect, slider_value: f32) {
+    let t = slider_value.clamp(0.0, 1.0);
+    let base_handle_radius = slider_rect.width() / 2.5;
+    let handle_extent = match ui.style().visuals.handle_shape {
+        egui::style::HandleShape::Circle => base_handle_radius,
+        egui::style::HandleShape::Rect { aspect_ratio } => base_handle_radius * aspect_ratio,
+    };
+    let y_top = slider_rect.top() + handle_extent;
+    let y_bottom = slider_rect.bottom() - handle_extent;
+    let knob_y = egui::lerp(y_bottom..=y_top, t);
+    let percent = (t * 100.0).round() as i32;
+
+    ui.painter().text(
+        egui::pos2(slider_rect.center().x, knob_y),
+        egui::Align2::CENTER_CENTER,
+        format!("{percent}"),
+        egui::FontId::proportional(11.0),
+        ui.visuals().widgets.active.fg_stroke.color,
+    );
+}
+
 impl PipeMeeterApp {
     pub(super) fn draw_input_subgroup(
         &mut self,
@@ -89,7 +110,7 @@ impl PipeMeeterApp {
         };
 
         ui.vertical(|ui| {
-            ui.set_width(172.0 * len.max(1) as f32 - 22.0);
+            ui.set_width(162.0 * len.max(1) as f32 - 22.0);
 
             ui.horizontal(|ui| {
                 ui.heading(title);
@@ -120,7 +141,7 @@ impl PipeMeeterApp {
                     };
 
                     ui.vertical(|ui| {
-                        ui.set_width(150.0);
+                        ui.set_width(140.0);
 
                         if let Some((line1, line2)) = resolved_node_title {
                             if draw_strip_header(ui, &strip.name, &line1, line2.as_deref(), false) {
@@ -141,13 +162,27 @@ impl PipeMeeterApp {
                         ui.add_space(3.0);
 
                         ui.horizontal(|ui| {
-                            draw_placeholder_meter(ui, strip.placeholder_meter, 160.0);
+                            draw_placeholder_meter(
+                                ui,
+                                strip.placeholder_meter,
+                                egui::vec2(32.0, 250.0),
+                            );
                             let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
                             let slider = egui::Slider::new(&mut slider_value, 0.0..=1.0)
                                 .step_by(0.05)
                                 .vertical()
                                 .show_value(false);
-                            if ui.add(slider).changed() {
+                            let (slider_changed, slider_rect) = ui
+                                .scope(|ui| {
+                                    let spacing = ui.spacing_mut();
+                                    spacing.slider_width = 250.0;
+                                    spacing.interact_size.y = 40.0;
+                                    let response = ui.add(slider);
+                                    (response.changed(), response.rect)
+                                })
+                                .inner;
+                            draw_slider_knob_percentage(ui, slider_rect, slider_value);
+                            if slider_changed {
                                 strip.volume = slider_value;
                                 changed_volume = Some(slider_value);
                                 *dirty = true;
@@ -213,7 +248,7 @@ impl PipeMeeterApp {
         };
 
         ui.vertical(|ui| {
-            ui.set_width(122.0 * len.max(1) as f32 - 22.0);
+            ui.set_width(112.0 * len.max(1) as f32 - 22.0);
 
             ui.horizontal(|ui| {
                 ui.heading(title);
@@ -244,7 +279,7 @@ impl PipeMeeterApp {
                     };
 
                     ui.vertical(|ui| {
-                        ui.set_width(100.0);
+                        ui.set_width(90.0);
 
                         if let Some((line1, line2)) = resolved_node_title {
                             if draw_strip_header(ui, &strip.name, &line1, line2.as_deref(), false) {
@@ -265,13 +300,27 @@ impl PipeMeeterApp {
                         ui.add_space(3.0);
 
                         ui.horizontal(|ui| {
-                            draw_placeholder_meter(ui, strip.placeholder_meter, 160.0);
+                            draw_placeholder_meter(
+                                ui,
+                                strip.placeholder_meter,
+                                egui::vec2(32.0, 250.0),
+                            );
                             let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
                             let slider = egui::Slider::new(&mut slider_value, 0.0..=1.0)
                                 .step_by(0.05)
                                 .vertical()
                                 .show_value(false);
-                            if ui.add(slider).changed() {
+                            let (slider_changed, slider_rect) = ui
+                                .scope(|ui| {
+                                    let spacing = ui.spacing_mut();
+                                    spacing.slider_width = 250.0;
+                                    spacing.interact_size.y = 40.0;
+                                    let response = ui.add(slider);
+                                    (response.changed(), response.rect)
+                                })
+                                .inner;
+                            draw_slider_knob_percentage(ui, slider_rect, slider_value);
+                            if slider_changed {
                                 strip.volume = slider_value;
                                 changed_volume = Some(slider_value);
                                 *dirty = true;

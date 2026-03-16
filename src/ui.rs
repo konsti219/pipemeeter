@@ -16,8 +16,12 @@ pub fn apply_voicemeeter_like_theme(ctx: &egui::Context) {
     ctx.set_visuals(visuals);
 }
 
-pub fn draw_placeholder_meter(ui: &mut egui::Ui, level: f32, height: f32) {
-    let size = egui::vec2(16.0, height);
+pub fn draw_placeholder_meter(ui: &mut egui::Ui, level: f32, size: egui::Vec2) {
+    const CHANNEL_WIDTH: f32 = 15.0;
+    const CHANNEL_GAP: f32 = 2.0;
+    const CORNER_RADIUS: f32 = 2.0;
+    const INNER_MARGIN: f32 = 2.0;
+
     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
     let painter = ui.painter_at(rect);
 
@@ -25,13 +29,26 @@ pub fn draw_placeholder_meter(ui: &mut egui::Ui, level: f32, height: f32) {
     let border = egui::Color32::from_rgb(70, 77, 85);
     let fill = egui::Color32::from_rgb(92, 194, 110);
 
-    painter.rect_filled(rect, 2.0, bg);
-    painter.rect_stroke(
-        rect,
-        2.0,
-        egui::Stroke::new(1.0, border),
-        egui::StrokeKind::Outside,
+    let channels_width = CHANNEL_WIDTH * 2.0 + CHANNEL_GAP;
+    let channels_left = rect.left() + ((rect.width() - channels_width) * 0.5).max(0.0);
+    let left_rect = egui::Rect::from_min_size(
+        egui::pos2(channels_left, rect.top()),
+        egui::vec2(CHANNEL_WIDTH, rect.height()),
     );
+    let right_rect = egui::Rect::from_min_size(
+        egui::pos2(channels_left + CHANNEL_WIDTH + CHANNEL_GAP, rect.top()),
+        egui::vec2(CHANNEL_WIDTH, rect.height()),
+    );
+
+    for channel_rect in [left_rect, right_rect] {
+        painter.rect_filled(channel_rect, CORNER_RADIUS, bg);
+        painter.rect_stroke(
+            channel_rect,
+            CORNER_RADIUS,
+            egui::Stroke::new(1.0, border),
+            egui::StrokeKind::Outside,
+        );
+    }
 
     let clamped = level.clamp(0.0, 1.0);
     if clamped <= 0.0 {
@@ -39,9 +56,17 @@ pub fn draw_placeholder_meter(ui: &mut egui::Ui, level: f32, height: f32) {
     }
 
     let fill_height = rect.height() * clamped;
-    let fill_rect = egui::Rect::from_min_max(
-        egui::pos2(rect.left() + 2.0, rect.bottom() - fill_height),
-        egui::pos2(rect.right() - 2.0, rect.bottom() - 2.0),
-    );
-    painter.rect_filled(fill_rect, 1.0, fill);
+    for channel_rect in [left_rect, right_rect] {
+        let fill_rect = egui::Rect::from_min_max(
+            egui::pos2(
+                channel_rect.left() + INNER_MARGIN,
+                channel_rect.bottom() - fill_height,
+            ),
+            egui::pos2(
+                channel_rect.right() - INNER_MARGIN,
+                channel_rect.bottom() - INNER_MARGIN,
+            ),
+        );
+        painter.rect_filled(fill_rect, 1.0, fill);
+    }
 }

@@ -75,11 +75,11 @@ impl PipeMeeterApp {
             + self.config.virtual_inputs.len().max(1) as f32;
         let output_strips = (self.config.physical_outputs.len() as f32).max(1.35)
             + (self.config.virtual_outputs.len() as f32).max(1.35);
-        let _width = (input_strips * 150.0 + output_strips * 100.0)
+        let width = (input_strips * 140.0 + output_strips * 90.0)
             + GAP * (input_strips + output_strips - 1.0);
 
-        // egui::vec2(width + 16.0, 450.0)
-        egui::vec2(2500.0, 1200.0)
+        egui::vec2(width + 16.0, 450.0)
+        // egui::vec2(2500.0, 1200.0)
     }
 
     fn apply_viewport_size(&mut self, ctx: &egui::Context) {
