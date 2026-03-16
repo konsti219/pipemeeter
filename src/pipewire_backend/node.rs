@@ -9,9 +9,9 @@ pub struct PwNode {
     pub media_class: Option<String>,
     pub category: PwNodeCategory,
     pub media_name: Option<String>,
-    pub factory_id: u32,
-    pub client_id: Option<u32>,
-    pub client_api: Option<String>,
+    // pub factory_id: u32,
+    // pub client_id: Option<u32>,
+    // pub client_api: Option<String>,
     pub device_id: Option<u32>,
     pub process_binary: Option<String>,
     pub volume: [f32; 2],
@@ -30,15 +30,6 @@ pub enum PwNodeCategory {
 // - Stream/Input/Audio for monitors
 // - Audio/Device for devices
 // - Audio/Sink for sinks (wivrn)
-
-impl PwNode {
-    pub(super) fn to_proxy<'a>(&self, proxies: &'a PwProxies) -> &'a pw::node::Node {
-        match &proxies.get(&self.id).unwrap() {
-            PwProxy::Node(node, _) => node,
-            _ => panic!("proxy for node id={} not found", self.id),
-        }
-    }
-}
 
 pub(super) fn handle_node_global(
     global: &pw::registry::GlobalObject<&pw::spa::utils::dict::DictRef>,
@@ -111,9 +102,9 @@ pub(super) fn handle_node_global(
         media_class: props.get(&MEDIA_CLASS).owned(),
         category: classify_media_class(props.get(&MEDIA_CLASS)),
         media_name: None, // never in the static properties
-        factory_id: props.get(&FACTORY_ID).unwrap().parse::<u32>().unwrap(),
-        client_id: props.get(&CLIENT_ID).map(|v| v.parse::<u32>().unwrap()),
-        client_api: props.get(&CLIENT_API).map(ToOwned::to_owned),
+        // factory_id: props.get(&FACTORY_ID).unwrap().parse::<u32>().unwrap(),
+        // client_id: props.get(&CLIENT_ID).map(|v| v.parse::<u32>().unwrap()),
+        // client_api: props.get(&CLIENT_API).map(ToOwned::to_owned),
         device_id: props.get(&DEVICE_ID).map(|v| v.parse::<u32>().unwrap()),
         process_binary: None,
         volume: [1.0, 1.0],
@@ -142,37 +133,6 @@ fn classify_media_class(media_class: Option<&str>) -> PwNodeCategory {
     }
 }
 
-pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result<()> {
-    let node_factory = "adapter";
-    let name = format!("pipemeeter/{}", name);
-
-    info!(
-        "issuing PipeWire command: create virtual device name='{}' node_factory='{}'",
-        name, node_factory
-    );
-
-    let _node = core
-        .create_object::<pw::node::Node>(
-            node_factory,
-            &properties! {
-                "factory.name" => "support.null-audio-sink",
-                "node.name" => name.as_str(),
-                "node.description" => name.as_str(),
-                "media.type" => "Audio",
-                "media.class" => "Audio/Duplex/Virtual",
-                "audio.channels" => "2",
-                "audio.position" => "FL FR",
-                "monitor.channel-volumes" => "true",
-                "object.linger" => "true",
-                "pipemeeter.managed" => "true",
-                "pipemeeter.device-name" => name.as_str(),
-            },
-        )
-        .context("failed to create virtual device")?;
-
-    Ok(())
-}
-
 pub(super) fn set_node_volume_impl(
     objects: &Arc<Mutex<PwState>>,
     proxies: &Rc<RefCell<PwProxies>>,
@@ -191,11 +151,8 @@ pub(super) fn set_node_volume_impl(
 
     let proxies_ref = proxies.borrow();
     let proxy = match proxies_ref.get(&node_id) {
-        Some(PwProxy::Device(_, _)) => {
-            bail!("object id={} is not a node", node_id);
-        }
         Some(PwProxy::Node(node, _listener)) => node,
-        Some(PwProxy::Port(_, _)) => {
+        Some(_) => {
             bail!("object id={} is not a node", node_id);
         }
         None => {
@@ -236,6 +193,37 @@ pub(super) fn set_node_volume_impl(
             .context("failed to build route pod for volume command")?;
         device_proxy.set_param(ParamType::Route, 0, route_param);
     }
+
+    Ok(())
+}
+
+pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result<()> {
+    let node_factory = "adapter";
+    let name = format!("pipemeeter/{}", name);
+
+    info!(
+        "issuing PipeWire command: create virtual device name='{}' node_factory='{}'",
+        name, node_factory
+    );
+
+    let _node = core
+        .create_object::<pw::node::Node>(
+            node_factory,
+            &properties! {
+                "factory.name" => "support.null-audio-sink",
+                "node.name" => name.as_str(),
+                "node.description" => name.as_str(),
+                "media.type" => "Audio",
+                "media.class" => "Audio/Duplex/Virtual",
+                "audio.channels" => "2",
+                "audio.position" => "FL FR",
+                "monitor.channel-volumes" => "true",
+                "object.linger" => "true",
+                "pipemeeter.managed" => "true",
+                "pipemeeter.device-name" => name.as_str(),
+            },
+        )
+        .context("failed to create virtual device")?;
 
     Ok(())
 }
