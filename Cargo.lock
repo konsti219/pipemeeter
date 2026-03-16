@@ -2594,6 +2594,7 @@ dependencies = [
  "dirs",
  "eframe",
  "env_logger",
+ "glob",
  "log",
  "pipewire",
  "serde",

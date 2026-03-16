@@ -11,12 +11,12 @@ use eframe::egui;
 use log::error;
 
 use crate::config::{
-    AppConfig, InputStripConfig, NodeMatchProperty, OutputStripConfig, config_path, load_config,
+    AppConfig, InputStripConfig, NodeMatchRequirement, OutputStripConfig, config_path, load_config,
     save_config,
 };
 use crate::pipewire_backend::{PipewireBackend, PwStateExt};
 use crate::ui::apply_voicemeeter_like_theme;
-use types::{EditDialogState, Group, ResolvedNodeInfo, StripTarget};
+use types::{EditDialogState, Group, ResolvedNodeEntry, ResolvedNodeInfo, StripTarget};
 
 pub struct PipeMeeterApp {
     config_path: PathBuf,
@@ -162,22 +162,18 @@ impl PipeMeeterApp {
         &self,
         group: Group,
         index: usize,
-    ) -> Option<(String, String, NodeMatchProperty)> {
+    ) -> Option<(String, Vec<NodeMatchRequirement>)> {
         match group {
-            Group::Physical => self.config.physical_inputs.get(index).map(|s| {
-                (
-                    s.name.clone(),
-                    s.represented_node_name.clone(),
-                    s.represented_node_match,
-                )
-            }),
-            Group::Virtual => self.config.virtual_inputs.get(index).map(|s| {
-                (
-                    s.name.clone(),
-                    s.represented_node_name.clone(),
-                    s.represented_node_match,
-                )
-            }),
+            Group::Physical => self
+                .config
+                .physical_inputs
+                .get(index)
+                .map(|s| (s.name.clone(), s.represented_node_requirements.clone())),
+            Group::Virtual => self
+                .config
+                .virtual_inputs
+                .get(index)
+                .map(|s| (s.name.clone(), s.represented_node_requirements.clone())),
         }
     }
 
@@ -185,22 +181,18 @@ impl PipeMeeterApp {
         &self,
         group: Group,
         index: usize,
-    ) -> Option<(String, String, NodeMatchProperty)> {
+    ) -> Option<(String, Vec<NodeMatchRequirement>)> {
         match group {
-            Group::Physical => self.config.physical_outputs.get(index).map(|s| {
-                (
-                    s.name.clone(),
-                    s.represented_node_name.clone(),
-                    s.represented_node_match,
-                )
-            }),
-            Group::Virtual => self.config.virtual_outputs.get(index).map(|s| {
-                (
-                    s.name.clone(),
-                    s.represented_node_name.clone(),
-                    s.represented_node_match,
-                )
-            }),
+            Group::Physical => self
+                .config
+                .physical_outputs
+                .get(index)
+                .map(|s| (s.name.clone(), s.represented_node_requirements.clone())),
+            Group::Virtual => self
+                .config
+                .virtual_outputs
+                .get(index)
+                .map(|s| (s.name.clone(), s.represented_node_requirements.clone())),
         }
     }
 
@@ -210,12 +202,12 @@ impl PipeMeeterApp {
             StripTarget::Output { group, index } => self.output_strip_names(group, index),
         };
 
-        if let Some((strip_name, represented_node_name, represented_node_match)) = draft_names {
+        if let Some((strip_name, represented_node_requirements)) = draft_names {
             self.edit_dialog = Some(EditDialogState {
                 target,
                 draft_strip_name: strip_name,
-                draft_represented_node_name: represented_node_name,
-                draft_represented_node_match: represented_node_match,
+                draft_represented_node_requirements: represented_node_requirements,
+                selected_requirement_index: 0,
             });
         }
     }
@@ -261,6 +253,12 @@ impl PipeMeeterApp {
                         }
                     }
                     Group::Virtual => {
+                        if self.config.virtual_outputs.len() == 1 {
+                            self.status =
+                                "cannot delete the last virtual output (at least one is required)"
+                                    .to_owned();
+                            return;
+                        }
                         if index < self.config.virtual_outputs.len() {
                             self.config.virtual_outputs.remove(index);
                         } else {
@@ -289,8 +287,7 @@ impl PipeMeeterApp {
         &mut self,
         target: StripTarget,
         strip_name: String,
-        represented_node_name: String,
-        represented_node_match: NodeMatchProperty,
+        represented_node_requirements: Vec<NodeMatchRequirement>,
     ) {
         let trimmed_strip_name = strip_name.trim();
         if trimmed_strip_name.is_empty() {
@@ -298,22 +295,70 @@ impl PipeMeeterApp {
             return;
         }
 
-        let normalized_node_name = represented_node_name.trim().to_owned();
+        let normalized_requirements = represented_node_requirements
+            .into_iter()
+            .filter_map(|requirement| {
+                let pattern = requirement.pattern.trim().to_owned();
+                if pattern.is_empty() {
+                    None
+                } else {
+                    Some(NodeMatchRequirement {
+                        pattern,
+                        match_property: requirement.match_property,
+                    })
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let fallback_only = match target {
+            StripTarget::Input { group, index } => match group {
+                Group::Physical => self
+                    .config
+                    .physical_inputs
+                    .get(index)
+                    .map(|strip| strip.represented_node_requirements.is_empty())
+                    .unwrap_or(false),
+                Group::Virtual => self
+                    .config
+                    .virtual_inputs
+                    .get(index)
+                    .map(|strip| strip.represented_node_requirements.is_empty())
+                    .unwrap_or(false),
+            },
+            StripTarget::Output { group, index } => match group {
+                Group::Physical => self
+                    .config
+                    .physical_outputs
+                    .get(index)
+                    .map(|strip| strip.represented_node_requirements.is_empty())
+                    .unwrap_or(false),
+                Group::Virtual => self
+                    .config
+                    .virtual_outputs
+                    .get(index)
+                    .map(|strip| strip.represented_node_requirements.is_empty())
+                    .unwrap_or(false),
+            },
+        };
+
+        let applied_requirements = if fallback_only {
+            Vec::new()
+        } else {
+            normalized_requirements
+        };
 
         match target {
             StripTarget::Input { group, index } => match group {
                 Group::Physical => {
                     if let Some(strip) = self.config.physical_inputs.get_mut(index) {
                         strip.name = trimmed_strip_name.to_owned();
-                        strip.represented_node_name = normalized_node_name.clone();
-                        strip.represented_node_match = represented_node_match;
+                        strip.represented_node_requirements = applied_requirements.clone();
                     }
                 }
                 Group::Virtual => {
                     if let Some(strip) = self.config.virtual_inputs.get_mut(index) {
                         strip.name = trimmed_strip_name.to_owned();
-                        strip.represented_node_name = normalized_node_name.clone();
-                        strip.represented_node_match = represented_node_match;
+                        strip.represented_node_requirements = applied_requirements.clone();
                     }
                 }
             },
@@ -321,15 +366,13 @@ impl PipeMeeterApp {
                 Group::Physical => {
                     if let Some(strip) = self.config.physical_outputs.get_mut(index) {
                         strip.name = trimmed_strip_name.to_owned();
-                        strip.represented_node_name = normalized_node_name.clone();
-                        strip.represented_node_match = represented_node_match;
+                        strip.represented_node_requirements = applied_requirements.clone();
                     }
                 }
                 Group::Virtual => {
                     if let Some(strip) = self.config.virtual_outputs.get_mut(index) {
                         strip.name = trimmed_strip_name.to_owned();
-                        strip.represented_node_name = normalized_node_name;
-                        strip.represented_node_match = represented_node_match;
+                        strip.represented_node_requirements = applied_requirements;
                     }
                 }
             },

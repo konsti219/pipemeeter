@@ -1,4 +1,4 @@
-use crate::config::NodeMatchProperty;
+use crate::config::NodeMatchRequirement;
 use crate::pipewire_backend::PwNodeCategory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,12 +32,17 @@ impl StripTarget {
 pub(super) struct EditDialogState {
     pub target: StripTarget,
     pub draft_strip_name: String,
-    pub draft_represented_node_name: String,
-    pub draft_represented_node_match: NodeMatchProperty,
+    pub draft_represented_node_requirements: Vec<NodeMatchRequirement>,
+    pub selected_requirement_index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ResolvedNodeEntry {
+    pub id: u32,
+    pub display_text: String,
 }
 
 #[derive(Debug, Clone)]
 pub(super) struct ResolvedNodeInfo {
-    pub id: u32,
-    pub display_text: String,
+    pub nodes: Vec<ResolvedNodeEntry>,
 }
