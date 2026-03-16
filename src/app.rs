@@ -11,10 +11,9 @@ use eframe::egui;
 use log::error;
 
 use crate::config::{
-    AppConfig, InputStripConfig, NodeMatchRequirement, OutputStripConfig, config_path, load_config,
-    save_config,
+    AppConfig, NodeMatchRequirement, StripConfig, config_path, load_config, save_config,
 };
-use crate::pipewire_backend::{PipewireBackend, PwStateExt};
+use crate::pipewire_backend::{PipewireBackend, PwNodeCategory, PwStateExt};
 use crate::ui::apply_voicemeeter_like_theme;
 use types::{EditDialogState, Group, ResolvedNodeEntry, ResolvedNodeInfo, StripTarget};
 
@@ -126,13 +125,13 @@ impl PipeMeeterApp {
                 let name = Self::default_input_name(group, self.config.physical_inputs.len());
                 self.config
                     .physical_inputs
-                    .push(InputStripConfig::new(name, output_count));
+                    .push(StripConfig::with_routes(name, output_count));
             }
             Group::Virtual => {
                 let name = Self::default_input_name(group, self.config.virtual_inputs.len());
                 self.config
                     .virtual_inputs
-                    .push(InputStripConfig::new(name, output_count));
+                    .push(StripConfig::with_routes(name, output_count));
             }
         }
         self.persist_config();
@@ -142,15 +141,11 @@ impl PipeMeeterApp {
         match group {
             Group::Physical => {
                 let name = Self::default_output_name(group, self.config.physical_outputs.len());
-                self.config
-                    .physical_outputs
-                    .push(OutputStripConfig::new(name));
+                self.config.physical_outputs.push(StripConfig::new(name));
             }
             Group::Virtual => {
                 let name = Self::default_output_name(group, self.config.virtual_outputs.len());
-                self.config
-                    .virtual_outputs
-                    .push(OutputStripConfig::new(name));
+                self.config.virtual_outputs.push(StripConfig::new(name));
             }
         }
 
@@ -158,55 +153,32 @@ impl PipeMeeterApp {
         self.persist_config();
     }
 
-    fn input_strip_names(
-        &self,
-        group: Group,
-        index: usize,
-    ) -> Option<(String, Vec<NodeMatchRequirement>)> {
-        match group {
-            Group::Physical => self
-                .config
-                .physical_inputs
-                .get(index)
-                .map(|s| (s.name.clone(), s.represented_node_requirements.clone())),
-            Group::Virtual => self
-                .config
-                .virtual_inputs
-                .get(index)
-                .map(|s| (s.name.clone(), s.represented_node_requirements.clone())),
+    fn strip_ref(&self, target: StripTarget) -> Option<&StripConfig> {
+        match target.category {
+            PwNodeCategory::InputDevice => self.config.physical_inputs.get(target.index),
+            PwNodeCategory::PlaybackStream => self.config.virtual_inputs.get(target.index),
+            PwNodeCategory::OutputDevice => self.config.physical_outputs.get(target.index),
+            PwNodeCategory::RecordingStream => self.config.virtual_outputs.get(target.index),
+            PwNodeCategory::Other => None,
         }
     }
 
-    fn output_strip_names(
-        &self,
-        group: Group,
-        index: usize,
-    ) -> Option<(String, Vec<NodeMatchRequirement>)> {
-        match group {
-            Group::Physical => self
-                .config
-                .physical_outputs
-                .get(index)
-                .map(|s| (s.name.clone(), s.represented_node_requirements.clone())),
-            Group::Virtual => self
-                .config
-                .virtual_outputs
-                .get(index)
-                .map(|s| (s.name.clone(), s.represented_node_requirements.clone())),
+    fn strip_mut(&mut self, target: StripTarget) -> Option<&mut StripConfig> {
+        match target.category {
+            PwNodeCategory::InputDevice => self.config.physical_inputs.get_mut(target.index),
+            PwNodeCategory::PlaybackStream => self.config.virtual_inputs.get_mut(target.index),
+            PwNodeCategory::OutputDevice => self.config.physical_outputs.get_mut(target.index),
+            PwNodeCategory::RecordingStream => self.config.virtual_outputs.get_mut(target.index),
+            PwNodeCategory::Other => None,
         }
     }
 
     fn open_edit_dialog(&mut self, target: StripTarget) {
-        let draft_names = match target {
-            StripTarget::Input { group, index } => self.input_strip_names(group, index),
-            StripTarget::Output { group, index } => self.output_strip_names(group, index),
-        };
-
-        if let Some((strip_name, represented_node_requirements)) = draft_names {
+        if let Some(strip) = self.strip_ref(target) {
             self.edit_dialog = Some(EditDialogState {
                 target,
-                draft_strip_name: strip_name,
-                draft_represented_node_requirements: represented_node_requirements,
+                draft_strip_name: strip.name.clone(),
+                draft_represented_node_requirements: strip.represented_node_requirements.clone(),
                 selected_requirement_index: 0,
             });
         }
@@ -220,51 +192,57 @@ impl PipeMeeterApp {
     }
 
     fn delete_target(&mut self, target: StripTarget) {
-        match target {
-            StripTarget::Input { group, index } => match group {
-                Group::Physical => {
-                    if index < self.config.physical_inputs.len() {
-                        self.config.physical_inputs.remove(index);
-                        self.persist_config();
-                    }
+        match target.category {
+            PwNodeCategory::InputDevice => {
+                if target.index < self.config.physical_inputs.len() {
+                    self.config.physical_inputs.remove(target.index);
+                    self.persist_config();
                 }
-                Group::Virtual => {
-                    if self.config.virtual_inputs.len() == 1 {
-                        self.status =
-                            "cannot delete the last virtual input (at least one is required)"
-                                .to_owned();
-                        return;
-                    }
-                    if index < self.config.virtual_inputs.len() {
-                        self.config.virtual_inputs.remove(index);
-                        self.persist_config();
-                    }
+            }
+            PwNodeCategory::PlaybackStream => {
+                if self.config.virtual_inputs.len() == 1 {
+                    self.status = "cannot delete the last virtual input (at least one is required)"
+                        .to_owned();
+                    return;
                 }
-            },
-            StripTarget::Output { group, index } => {
-                let output_idx = self.global_output_index(group, index);
+                if target.index < self.config.virtual_inputs.len() {
+                    self.config.virtual_inputs.remove(target.index);
+                    self.persist_config();
+                }
+            }
+            PwNodeCategory::OutputDevice | PwNodeCategory::RecordingStream => {
+                let output_idx = match target.category {
+                    PwNodeCategory::OutputDevice => {
+                        self.global_output_index(Group::Physical, target.index)
+                    }
+                    PwNodeCategory::RecordingStream => {
+                        self.global_output_index(Group::Virtual, target.index)
+                    }
+                    _ => return,
+                };
 
-                match group {
-                    Group::Physical => {
-                        if index < self.config.physical_outputs.len() {
-                            self.config.physical_outputs.remove(index);
+                match target.category {
+                    PwNodeCategory::OutputDevice => {
+                        if target.index < self.config.physical_outputs.len() {
+                            self.config.physical_outputs.remove(target.index);
                         } else {
                             return;
                         }
                     }
-                    Group::Virtual => {
+                    PwNodeCategory::RecordingStream => {
                         if self.config.virtual_outputs.len() == 1 {
                             self.status =
                                 "cannot delete the last virtual output (at least one is required)"
                                     .to_owned();
                             return;
                         }
-                        if index < self.config.virtual_outputs.len() {
-                            self.config.virtual_outputs.remove(index);
+                        if target.index < self.config.virtual_outputs.len() {
+                            self.config.virtual_outputs.remove(target.index);
                         } else {
                             return;
                         }
                     }
+                    _ => return,
                 }
 
                 for input in self
@@ -280,6 +258,7 @@ impl PipeMeeterApp {
 
                 self.persist_config();
             }
+            PwNodeCategory::Other => {}
         }
     }
 
@@ -310,36 +289,10 @@ impl PipeMeeterApp {
             })
             .collect::<Vec<_>>();
 
-        let fallback_only = match target {
-            StripTarget::Input { group, index } => match group {
-                Group::Physical => self
-                    .config
-                    .physical_inputs
-                    .get(index)
-                    .map(|strip| strip.represented_node_requirements.is_empty())
-                    .unwrap_or(false),
-                Group::Virtual => self
-                    .config
-                    .virtual_inputs
-                    .get(index)
-                    .map(|strip| strip.represented_node_requirements.is_empty())
-                    .unwrap_or(false),
-            },
-            StripTarget::Output { group, index } => match group {
-                Group::Physical => self
-                    .config
-                    .physical_outputs
-                    .get(index)
-                    .map(|strip| strip.represented_node_requirements.is_empty())
-                    .unwrap_or(false),
-                Group::Virtual => self
-                    .config
-                    .virtual_outputs
-                    .get(index)
-                    .map(|strip| strip.represented_node_requirements.is_empty())
-                    .unwrap_or(false),
-            },
-        };
+        let fallback_only = self
+            .strip_ref(target)
+            .map(|strip| strip.represented_node_requirements.is_empty())
+            .unwrap_or(false);
 
         let applied_requirements = if fallback_only {
             Vec::new()
@@ -347,35 +300,9 @@ impl PipeMeeterApp {
             normalized_requirements
         };
 
-        match target {
-            StripTarget::Input { group, index } => match group {
-                Group::Physical => {
-                    if let Some(strip) = self.config.physical_inputs.get_mut(index) {
-                        strip.name = trimmed_strip_name.to_owned();
-                        strip.represented_node_requirements = applied_requirements.clone();
-                    }
-                }
-                Group::Virtual => {
-                    if let Some(strip) = self.config.virtual_inputs.get_mut(index) {
-                        strip.name = trimmed_strip_name.to_owned();
-                        strip.represented_node_requirements = applied_requirements.clone();
-                    }
-                }
-            },
-            StripTarget::Output { group, index } => match group {
-                Group::Physical => {
-                    if let Some(strip) = self.config.physical_outputs.get_mut(index) {
-                        strip.name = trimmed_strip_name.to_owned();
-                        strip.represented_node_requirements = applied_requirements.clone();
-                    }
-                }
-                Group::Virtual => {
-                    if let Some(strip) = self.config.virtual_outputs.get_mut(index) {
-                        strip.name = trimmed_strip_name.to_owned();
-                        strip.represented_node_requirements = applied_requirements;
-                    }
-                }
-            },
+        if let Some(strip) = self.strip_mut(target) {
+            strip.name = trimmed_strip_name.to_owned();
+            strip.represented_node_requirements = applied_requirements;
         }
 
         self.persist_config();

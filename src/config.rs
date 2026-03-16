@@ -46,7 +46,7 @@ impl NodeMatchProperty {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InputStripConfig {
+pub struct StripConfig {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
@@ -59,8 +59,8 @@ pub struct InputStripConfig {
     pub routes_to_outputs: Vec<bool>,
 }
 
-impl InputStripConfig {
-    pub fn new(name: String, output_count: usize) -> Self {
+impl StripConfig {
+    pub fn with_routes(name: String, output_count: usize) -> Self {
         Self {
             name,
             represented_node_requirements: Vec::new(),
@@ -69,27 +69,13 @@ impl InputStripConfig {
             routes_to_outputs: vec![false; output_count],
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutputStripConfig {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub represented_node_requirements: Vec<NodeMatchRequirement>,
-    #[serde(default = "default_volume")]
-    pub volume: f32,
-    #[serde(default)]
-    pub placeholder_meter: f32,
-}
-
-impl OutputStripConfig {
     pub fn new(name: String) -> Self {
         Self {
             name,
             represented_node_requirements: Vec::new(),
             volume: 1.0,
             placeholder_meter: 0.0,
+            routes_to_outputs: Vec::new(),
         }
     }
 }
@@ -97,24 +83,37 @@ impl OutputStripConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
-    pub physical_inputs: Vec<InputStripConfig>,
-    pub virtual_inputs: Vec<InputStripConfig>,
-    pub physical_outputs: Vec<OutputStripConfig>,
-    pub virtual_outputs: Vec<OutputStripConfig>,
+    pub physical_inputs: Vec<StripConfig>,
+    pub virtual_inputs: Vec<StripConfig>,
+    pub physical_outputs: Vec<StripConfig>,
+    pub virtual_outputs: Vec<StripConfig>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             physical_inputs: Vec::new(),
-            virtual_inputs: vec![InputStripConfig::new("Virtual In 1".to_owned(), 0)],
+            virtual_inputs: vec![StripConfig::with_routes("Virtual In 1".to_owned(), 0)],
             physical_outputs: Vec::new(),
-            virtual_outputs: vec![OutputStripConfig::new("Virtual Out 1".to_owned())],
+            virtual_outputs: vec![StripConfig::new("Virtual Out 1".to_owned())],
         }
     }
 }
 
 impl AppConfig {
+    fn normalize_strip(strip: &mut StripConfig, default_name: &str) {
+        if strip.name.trim().is_empty() {
+            strip.name = default_name.to_owned();
+        }
+
+        strip
+            .represented_node_requirements
+            .retain(|requirement| !requirement.pattern.trim().is_empty());
+
+        strip.volume = strip.volume.clamp(0.0, 1.0);
+        strip.placeholder_meter = strip.placeholder_meter.clamp(0.0, 1.0);
+    }
+
     pub fn output_count(&self) -> usize {
         self.physical_outputs.len() + self.virtual_outputs.len()
     }
@@ -137,11 +136,11 @@ impl AppConfig {
     pub fn normalize(&mut self) {
         if self.virtual_inputs.is_empty() {
             self.virtual_inputs
-                .push(InputStripConfig::new("Virtual In 1".to_owned(), 0));
+                .push(StripConfig::with_routes("Virtual In 1".to_owned(), 0));
         }
         if self.virtual_outputs.is_empty() {
             self.virtual_outputs
-                .push(OutputStripConfig::new("Virtual Out 1".to_owned()));
+                .push(StripConfig::new("Virtual Out 1".to_owned()));
         }
 
         for input in self
@@ -149,15 +148,7 @@ impl AppConfig {
             .iter_mut()
             .chain(self.virtual_inputs.iter_mut())
         {
-            if input.name.trim().is_empty() {
-                input.name = "Input".to_owned();
-            }
-            input
-                .represented_node_requirements
-                .retain(|requirement| !requirement.pattern.trim().is_empty());
-
-            input.volume = input.volume.clamp(0.0, 1.0);
-            input.placeholder_meter = input.placeholder_meter.clamp(0.0, 1.0);
+            Self::normalize_strip(input, "Input");
         }
 
         for output in self
@@ -165,15 +156,8 @@ impl AppConfig {
             .iter_mut()
             .chain(self.virtual_outputs.iter_mut())
         {
-            if output.name.trim().is_empty() {
-                output.name = "Output".to_owned();
-            }
-            output
-                .represented_node_requirements
-                .retain(|requirement| !requirement.pattern.trim().is_empty());
-
-            output.volume = output.volume.clamp(0.0, 1.0);
-            output.placeholder_meter = output.placeholder_meter.clamp(0.0, 1.0);
+            Self::normalize_strip(output, "Output");
+            output.routes_to_outputs.clear();
         }
 
         if !self
@@ -182,7 +166,7 @@ impl AppConfig {
             .any(|strip| strip.represented_node_requirements.is_empty())
         {
             let output_count = self.output_count();
-            self.virtual_inputs.push(InputStripConfig::new(
+            self.virtual_inputs.push(StripConfig::with_routes(
                 format!("Virtual In {}", self.virtual_inputs.len() + 1),
                 output_count,
             ));
@@ -193,7 +177,7 @@ impl AppConfig {
             .iter()
             .any(|strip| strip.represented_node_requirements.is_empty())
         {
-            self.virtual_outputs.push(OutputStripConfig::new(format!(
+            self.virtual_outputs.push(StripConfig::new(format!(
                 "Virtual Out {}",
                 self.virtual_outputs.len() + 1
             )));

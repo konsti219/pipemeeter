@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use glob::Pattern;
 
-use crate::config::{NodeMatchProperty, NodeMatchRequirement};
-use crate::pipewire_backend::{PwNode, PwObject, PwStateExt};
+use crate::config::{NodeMatchProperty, NodeMatchRequirement, StripConfig};
+use crate::pipewire_backend::{PwNode, PwNodeCategory, PwObject, PwStateExt};
 
-use super::{Group, PipeMeeterApp, ResolvedNodeEntry, ResolvedNodeInfo, StripTarget};
+use super::{PipeMeeterApp, ResolvedNodeEntry, ResolvedNodeInfo, StripTarget};
 
 fn node_display_text(node: &PwNode) -> String {
     node.description
@@ -82,22 +82,27 @@ fn strip_nodes_to_resolved(nodes: &[&PwNode]) -> ResolvedNodeInfo {
     }
 }
 
-fn resolve_group<'a, I, F>(
+fn resolve_group(
     resolved: &mut HashMap<StripTarget, ResolvedNodeInfo>,
     nodes: &[&PwNode],
-    strips: I,
-    make_target: F,
+    strips: &[StripConfig],
+    category: PwNodeCategory,
     enable_virtual_fallback: bool,
-) where
-    I: Iterator<Item = (usize, &'a [NodeMatchRequirement])>,
-    F: Fn(usize) -> StripTarget,
-{
+    max_matches_per_strip: Option<usize>,
+) {
     let mut assigned_nodes = HashSet::<u32>::new();
+    let mut ordered_strips = strips.iter().enumerate().collect::<Vec<_>>();
 
-    for (index, requirements) in strips {
-        let target = make_target(index);
+    if enable_virtual_fallback {
+        // Apply explicit match requirements first, then let fallback strips take leftovers.
+        ordered_strips.sort_by_key(|(_, strip)| strip.represented_node_requirements.is_empty());
+    }
 
-        let matched_nodes = if requirements.is_empty() {
+    for (index, strip) in ordered_strips {
+        let target = StripTarget::new(index, category);
+        let requirements = strip.represented_node_requirements.as_slice();
+
+        let mut matched_nodes = if requirements.is_empty() {
             if !enable_virtual_fallback {
                 continue;
             }
@@ -105,7 +110,7 @@ fn resolve_group<'a, I, F>(
             nodes
                 .iter()
                 .copied()
-                .filter(|node| node.category == target.node_filter())
+                .filter(|node| node.category == target.category)
                 .filter(|node| !assigned_nodes.contains(&node.id))
                 .collect::<Vec<_>>()
         } else {
@@ -120,6 +125,10 @@ fn resolve_group<'a, I, F>(
                 })
                 .collect::<Vec<_>>()
         };
+
+        if let Some(max_matches) = max_matches_per_strip {
+            matched_nodes.truncate(max_matches);
+        }
 
         if matched_nodes.is_empty() {
             continue;
@@ -190,61 +199,37 @@ impl PipeMeeterApp {
         resolve_group(
             &mut resolved_nodes,
             &nodes,
-            self.config
-                .physical_inputs
-                .iter()
-                .enumerate()
-                .map(|(idx, strip)| (idx, strip.represented_node_requirements.as_slice())),
-            |index| StripTarget::Input {
-                group: Group::Physical,
-                index,
-            },
+            &self.config.physical_inputs,
+            PwNodeCategory::InputDevice,
             false,
+            Some(1),
         );
 
         resolve_group(
             &mut resolved_nodes,
             &nodes,
-            self.config
-                .virtual_inputs
-                .iter()
-                .enumerate()
-                .map(|(idx, strip)| (idx, strip.represented_node_requirements.as_slice())),
-            |index| StripTarget::Input {
-                group: Group::Virtual,
-                index,
-            },
+            &self.config.virtual_inputs,
+            PwNodeCategory::PlaybackStream,
             true,
+            None,
         );
 
         resolve_group(
             &mut resolved_nodes,
             &nodes,
-            self.config
-                .physical_outputs
-                .iter()
-                .enumerate()
-                .map(|(idx, strip)| (idx, strip.represented_node_requirements.as_slice())),
-            |index| StripTarget::Output {
-                group: Group::Physical,
-                index,
-            },
+            &self.config.physical_outputs,
+            PwNodeCategory::OutputDevice,
             false,
+            Some(1),
         );
 
         resolve_group(
             &mut resolved_nodes,
             &nodes,
-            self.config
-                .virtual_outputs
-                .iter()
-                .enumerate()
-                .map(|(idx, strip)| (idx, strip.represented_node_requirements.as_slice())),
-            |index| StripTarget::Output {
-                group: Group::Virtual,
-                index,
-            },
+            &self.config.virtual_outputs,
+            PwNodeCategory::RecordingStream,
             true,
+            None,
         );
 
         self.resolved_nodes = resolved_nodes;

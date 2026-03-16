@@ -8,23 +8,14 @@ pub(super) enum Group {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum StripTarget {
-    Input { group: Group, index: usize },
-    Output { group: Group, index: usize },
+pub(super) struct StripTarget {
+    pub index: usize,
+    pub category: PwNodeCategory,
 }
 
 impl StripTarget {
-    pub(super) fn node_filter(self) -> PwNodeCategory {
-        match self {
-            StripTarget::Input { group, .. } => match group {
-                Group::Physical => PwNodeCategory::InputDevice,
-                Group::Virtual => PwNodeCategory::PlaybackStream,
-            },
-            StripTarget::Output { group, .. } => match group {
-                Group::Physical => PwNodeCategory::OutputDevice,
-                Group::Virtual => PwNodeCategory::RecordingStream,
-            },
-        }
+    pub(super) fn new(index: usize, category: PwNodeCategory) -> Self {
+        Self { index, category }
     }
 }
 

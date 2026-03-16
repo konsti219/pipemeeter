@@ -101,7 +101,7 @@ impl PipeMeeterApp {
         let mut new_represented_node_requirements = Vec::new();
         let fallback_only = dialog.draft_represented_node_requirements.is_empty();
 
-        let filter = dialog.target.node_filter();
+        let filter = dialog.target.category;
         let (filtered_nodes, all_nodes) = {
             let objects = self.backend.objects.lock().unwrap();
             let mut all_nodes = objects.nodes().cloned().collect::<Vec<_>>();

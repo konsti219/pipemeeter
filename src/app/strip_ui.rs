@@ -1,5 +1,6 @@
 use eframe::egui;
 
+use crate::pipewire_backend::PwNodeCategory;
 use crate::ui::draw_placeholder_meter;
 
 use super::{Group, PipeMeeterApp, StripTarget};
@@ -100,8 +101,13 @@ impl PipeMeeterApp {
             ui.separator();
 
             ui.horizontal(|ui| {
+                let category = match group {
+                    Group::Physical => PwNodeCategory::InputDevice,
+                    Group::Virtual => PwNodeCategory::PlaybackStream,
+                };
+
                 for index in 0..len {
-                    let target = StripTarget::Input { group, index };
+                    let target = StripTarget::new(index, category);
                     let resolved_node_title = self.resolved_node_title(target);
                     let resolved_slider_value = self.resolved_volume_slider_value(target);
                     let resolved_node_ids = self.resolved_node_ids(target);
@@ -215,8 +221,13 @@ impl PipeMeeterApp {
             ui.separator();
 
             ui.horizontal(|ui| {
+                let category = match group {
+                    Group::Physical => PwNodeCategory::OutputDevice,
+                    Group::Virtual => PwNodeCategory::RecordingStream,
+                };
+
                 for index in 0..len {
-                    let target = StripTarget::Output { group, index };
+                    let target = StripTarget::new(index, category);
                     let resolved_node_title = self.resolved_node_title(target);
                     let resolved_slider_value = self.resolved_volume_slider_value(target);
                     let resolved_node_ids = self.resolved_node_ids(target);
