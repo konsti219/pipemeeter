@@ -15,8 +15,6 @@ pub struct PwNode {
     pub device_id: Option<u32>,
     pub process_binary: Option<String>,
     pub volume: [f32; 2],
-    pub managed_by_pipemeeter: bool,
-    pub managed_device_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -49,14 +47,14 @@ pub(super) fn handle_node_global(
         .add_listener_local()
         .info(move |info| {
             let media_name = info.props().and_then(|p| p.get(&MEDIA_NAME)).owned();
-            let monitor = info
-                .props()
-                .and_then(|p| p.get(&STREAM_MONITOR))
-                .map_or(false, |v| v == "true");
             let process_binary = info
                 .props()
                 .and_then(|p| p.get(&APP_PROCESS_BINARY))
                 .map(ToOwned::to_owned);
+            let monitor = info
+                .props()
+                .and_then(|p| p.get(&STREAM_MONITOR))
+                .map_or(false, |v| v == "true");
 
             let mut objects = objects_info.lock().unwrap();
             if let Some(PwObject::Node(node)) = objects.get_mut(&node_id) {
@@ -69,14 +67,14 @@ pub(super) fn handle_node_global(
                     node.media_name = Some(media_name);
                 }
 
-                if !monitor {
+                if let Some(process_binary) = process_binary {
+                    node.process_binary = Some(process_binary);
+                }
+
+                if !monitor && node.category != PwNodeCategory::Other {
                     node.category = classify_media_class(media_class.as_deref());
                 } else {
                     node.category = PwNodeCategory::Other;
-                }
-
-                if let Some(process_binary) = process_binary {
-                    node.process_binary = Some(process_binary);
                 }
             }
         })
@@ -110,11 +108,6 @@ pub(super) fn handle_node_global(
         device_id: props.get(&DEVICE_ID).map(|v| v.parse::<u32>().unwrap()),
         process_binary: None,
         volume: [1.0, 1.0],
-        managed_by_pipemeeter: props
-            .get("pipemeeter.managed")
-            .map(|value| value == "true")
-            .unwrap_or(false),
-        managed_device_name: props.get("pipemeeter.device-name").owned(),
     };
     objects.insert(global.id, PwObject::Node(node));
     proxies

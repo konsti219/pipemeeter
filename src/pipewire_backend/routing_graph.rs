@@ -10,21 +10,7 @@ fn managed_virtual_strip_nodes(state: &PwState) -> HashSet<u32> {
                 return None;
             };
 
-            let candidates = [
-                Some(node.name.as_str()),
-                node.description.as_deref(),
-                node.nick.as_deref(),
-                node.managed_device_name.as_deref(),
-            ];
-
-            let is_managed_virtual = candidates.into_iter().flatten().any(|value| {
-                value
-                    .strip_prefix("pipemeeter/")
-                    .unwrap_or(value)
-                    .starts_with(MANAGED_VIRTUAL_STRIP_PREFIX)
-            });
-
-            if is_managed_virtual {
+            if node.name.starts_with(VIRTUAL_DEVICE_PREFIX) {
                 Some(node.id)
             } else {
                 None

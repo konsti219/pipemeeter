@@ -148,7 +148,7 @@ fn format_resolved_title(resolved: &ResolvedNodeInfo) -> (String, Option<String>
         [single] => (format!("#{} {}", single.id, single.display_text), None),
         [first, second] => (
             format!("#{} {}", first.id, first.display_text),
-            Some(format!("Also: #{} {}", second.id, second.display_text)),
+            Some(format!("#{} {}", second.id, second.display_text)),
         ),
         [first, rest @ ..] => (
             format!("#{} {}", first.id, first.display_text),

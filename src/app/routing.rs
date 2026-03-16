@@ -3,42 +3,18 @@ use std::time::{Duration, Instant};
 
 use log::error;
 
-use crate::pipewire_backend::{
-    DesiredNodeLink, MANAGED_VIRTUAL_STRIP_PREFIX, PwNodeCategory, PwObject,
-};
+use crate::pipewire_backend::{DesiredNodeLink, PwNodeCategory, PwObject, VIRTUAL_DEVICE_PREFIX};
 
 use super::{PipeMeeterApp, StripTarget};
 
 const ROUTING_SYNC_INTERVAL: Duration = Duration::from_millis(250);
 
 fn virtual_input_combined_name(index: usize) -> String {
-    format!("{MANAGED_VIRTUAL_STRIP_PREFIX}vin-{}", index + 1)
+    format!("{VIRTUAL_DEVICE_PREFIX}vin-{}", index + 1)
 }
 
 fn virtual_output_combined_name(index: usize) -> String {
-    format!("{MANAGED_VIRTUAL_STRIP_PREFIX}vout-{}", index + 1)
-}
-
-fn normalize_managed_name(name: &str) -> &str {
-    name.strip_prefix("pipemeeter/").unwrap_or(name)
-}
-
-fn combined_name_from_node(node: &crate::pipewire_backend::PwNode) -> Option<String> {
-    let candidates = [
-        node.managed_device_name.as_deref(),
-        Some(node.name.as_str()),
-        node.description.as_deref(),
-        node.nick.as_deref(),
-    ];
-
-    for candidate in candidates.into_iter().flatten() {
-        let normalized = normalize_managed_name(candidate);
-        if normalized.starts_with(MANAGED_VIRTUAL_STRIP_PREFIX) {
-            return Some(normalized.to_owned());
-        }
-    }
-
-    None
+    format!("{VIRTUAL_DEVICE_PREFIX}vout-{}", index + 1)
 }
 
 impl PipeMeeterApp {
@@ -69,7 +45,7 @@ impl PipeMeeterApp {
                 return None;
             };
 
-            if combined_name_from_node(node).as_deref() == Some(managed_name) {
+            if node.name == managed_name {
                 Some(node.id)
             } else {
                 None
@@ -196,6 +172,97 @@ impl PipeMeeterApp {
         desired.into_iter().collect()
     }
 
+    fn virtual_input_single_explicit_app_node(&self, index: usize) -> Option<u32> {
+        let strip = self.config.virtual_inputs.get(index)?;
+        if strip.represented_node_requirements.is_empty() {
+            return None;
+        }
+
+        let target = StripTarget::new(index, PwNodeCategory::PlaybackStream);
+        let ids = self.resolved_ids_for(target);
+        if ids.len() == 1 { Some(ids[0]) } else { None }
+    }
+
+    fn sync_virtual_input_combined_volumes(&mut self) {
+        for index in 0..self.config.virtual_inputs.len() {
+            let Some(combined_node_id) = self.managed_node_id(&virtual_input_combined_name(index))
+            else {
+                continue;
+            };
+
+            let desired_linear = if self.virtual_input_single_explicit_app_node(index).is_some() {
+                1.0
+            } else {
+                let slider = self
+                    .config
+                    .virtual_inputs
+                    .get(index)
+                    .map(|strip| strip.volume)
+                    .unwrap_or(1.0);
+                super::volume::human_slider_to_pipewire_linear(slider)
+            };
+
+            let should_update = {
+                let objects = self.backend.objects.lock().unwrap();
+                match objects.get(&combined_node_id) {
+                    Some(PwObject::Node(node)) => {
+                        (node.volume[0] - desired_linear).abs() > 0.01
+                            || (node.volume[1] - desired_linear).abs() > 0.01
+                    }
+                    _ => false,
+                }
+            };
+
+            if should_update {
+                if let Err(err) = self
+                    .backend
+                    .set_node_volume(combined_node_id, desired_linear)
+                {
+                    self.status = format!(
+                        "failed to set virtual input combined volume for node #{}: {err}",
+                        combined_node_id
+                    );
+                }
+            }
+        }
+    }
+
+    pub(super) fn apply_virtual_input_slider_volume(&mut self, index: usize, slider: f32) {
+        if let Some(app_node_id) = self.virtual_input_single_explicit_app_node(index) {
+            if let Some(combined_node_id) =
+                self.managed_node_id(&virtual_input_combined_name(index))
+            {
+                if let Err(err) = self.backend.set_node_volume(combined_node_id, 1.0) {
+                    self.status = format!(
+                        "failed to reset virtual input combined volume for node #{}: {err}",
+                        combined_node_id
+                    );
+                }
+            }
+
+            let linear = super::volume::human_slider_to_pipewire_linear(slider);
+            if let Err(err) = self.backend.set_node_volume(app_node_id, linear) {
+                self.status = format!(
+                    "failed to set input volume for node #{}: {err}",
+                    app_node_id
+                );
+            }
+            return;
+        }
+
+        let Some(combined_node_id) = self.managed_node_id(&virtual_input_combined_name(index))
+        else {
+            return;
+        };
+        let linear = super::volume::human_slider_to_pipewire_linear(slider);
+        if let Err(err) = self.backend.set_node_volume(combined_node_id, linear) {
+            self.status = format!(
+                "failed to set virtual input combined volume for node #{}: {err}",
+                combined_node_id
+            );
+        }
+    }
+
     pub(super) fn maybe_sync_audio_routing(&mut self) {
         if self
             .last_routing_sync
@@ -210,6 +277,8 @@ impl PipeMeeterApp {
             self.status = format!("failed to sync managed virtual nodes: {err}");
             return;
         }
+
+        self.sync_virtual_input_combined_volumes();
 
         let desired_links = self.desired_routing_links();
         if let Err(err) = self.backend.sync_routing(desired_links) {

@@ -18,7 +18,7 @@ pub use node::*;
 mod routing_graph;
 use routing_graph::*;
 mod virtual_device;
-pub use virtual_device::MANAGED_VIRTUAL_STRIP_PREFIX;
+pub use virtual_device::VIRTUAL_DEVICE_PREFIX;
 use virtual_device::*;
 mod device;
 use device::*;

@@ -177,13 +177,17 @@ impl PipeMeeterApp {
                     }
 
                     if let Some(volume) = changed_volume {
-                        for node_id in resolved_node_ids {
-                            let linear = super::volume::human_slider_to_pipewire_linear(volume);
-                            if let Err(err) = self.backend.set_node_volume(node_id, linear) {
-                                self.status = format!(
-                                    "failed to set input volume for node #{}: {err}",
-                                    node_id
-                                );
+                        if category == PwNodeCategory::PlaybackStream {
+                            self.apply_virtual_input_slider_volume(index, volume);
+                        } else {
+                            for node_id in resolved_node_ids {
+                                let linear = super::volume::human_slider_to_pipewire_linear(volume);
+                                if let Err(err) = self.backend.set_node_volume(node_id, linear) {
+                                    self.status = format!(
+                                        "failed to set input volume for node #{}: {err}",
+                                        node_id
+                                    );
+                                }
                             }
                         }
                     }
