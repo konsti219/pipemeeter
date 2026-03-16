@@ -1,3 +1,4 @@
+use crate::config::NodeMatchProperty;
 use crate::pipewire_backend::PwNodeCategory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -32,6 +33,7 @@ pub(super) struct EditDialogState {
     pub target: StripTarget,
     pub draft_strip_name: String,
     pub draft_represented_node_name: String,
+    pub draft_represented_node_match: NodeMatchProperty,
 }
 
 #[derive(Debug, Clone)]

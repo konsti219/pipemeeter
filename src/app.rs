@@ -11,7 +11,8 @@ use eframe::egui;
 use log::error;
 
 use crate::config::{
-    AppConfig, InputStripConfig, OutputStripConfig, config_path, load_config, save_config,
+    AppConfig, InputStripConfig, NodeMatchProperty, OutputStripConfig, config_path, load_config,
+    save_config,
 };
 use crate::pipewire_backend::{PipewireBackend, PwStateExt};
 use crate::ui::apply_voicemeeter_like_theme;
@@ -157,33 +158,49 @@ impl PipeMeeterApp {
         self.persist_config();
     }
 
-    fn input_strip_names(&self, group: Group, index: usize) -> Option<(String, String)> {
+    fn input_strip_names(
+        &self,
+        group: Group,
+        index: usize,
+    ) -> Option<(String, String, NodeMatchProperty)> {
         match group {
-            Group::Physical => self
-                .config
-                .physical_inputs
-                .get(index)
-                .map(|s| (s.name.clone(), s.represented_node_name.clone())),
-            Group::Virtual => self
-                .config
-                .virtual_inputs
-                .get(index)
-                .map(|s| (s.name.clone(), s.represented_node_name.clone())),
+            Group::Physical => self.config.physical_inputs.get(index).map(|s| {
+                (
+                    s.name.clone(),
+                    s.represented_node_name.clone(),
+                    s.represented_node_match,
+                )
+            }),
+            Group::Virtual => self.config.virtual_inputs.get(index).map(|s| {
+                (
+                    s.name.clone(),
+                    s.represented_node_name.clone(),
+                    s.represented_node_match,
+                )
+            }),
         }
     }
 
-    fn output_strip_names(&self, group: Group, index: usize) -> Option<(String, String)> {
+    fn output_strip_names(
+        &self,
+        group: Group,
+        index: usize,
+    ) -> Option<(String, String, NodeMatchProperty)> {
         match group {
-            Group::Physical => self
-                .config
-                .physical_outputs
-                .get(index)
-                .map(|s| (s.name.clone(), s.represented_node_name.clone())),
-            Group::Virtual => self
-                .config
-                .virtual_outputs
-                .get(index)
-                .map(|s| (s.name.clone(), s.represented_node_name.clone())),
+            Group::Physical => self.config.physical_outputs.get(index).map(|s| {
+                (
+                    s.name.clone(),
+                    s.represented_node_name.clone(),
+                    s.represented_node_match,
+                )
+            }),
+            Group::Virtual => self.config.virtual_outputs.get(index).map(|s| {
+                (
+                    s.name.clone(),
+                    s.represented_node_name.clone(),
+                    s.represented_node_match,
+                )
+            }),
         }
     }
 
@@ -193,11 +210,12 @@ impl PipeMeeterApp {
             StripTarget::Output { group, index } => self.output_strip_names(group, index),
         };
 
-        if let Some((strip_name, represented_node_name)) = draft_names {
+        if let Some((strip_name, represented_node_name, represented_node_match)) = draft_names {
             self.edit_dialog = Some(EditDialogState {
                 target,
                 draft_strip_name: strip_name,
                 draft_represented_node_name: represented_node_name,
+                draft_represented_node_match: represented_node_match,
             });
         }
     }
@@ -272,6 +290,7 @@ impl PipeMeeterApp {
         target: StripTarget,
         strip_name: String,
         represented_node_name: String,
+        represented_node_match: NodeMatchProperty,
     ) {
         let trimmed_strip_name = strip_name.trim();
         if trimmed_strip_name.is_empty() {
@@ -287,12 +306,14 @@ impl PipeMeeterApp {
                     if let Some(strip) = self.config.physical_inputs.get_mut(index) {
                         strip.name = trimmed_strip_name.to_owned();
                         strip.represented_node_name = normalized_node_name.clone();
+                        strip.represented_node_match = represented_node_match;
                     }
                 }
                 Group::Virtual => {
                     if let Some(strip) = self.config.virtual_inputs.get_mut(index) {
                         strip.name = trimmed_strip_name.to_owned();
                         strip.represented_node_name = normalized_node_name.clone();
+                        strip.represented_node_match = represented_node_match;
                     }
                 }
             },
@@ -301,12 +322,14 @@ impl PipeMeeterApp {
                     if let Some(strip) = self.config.physical_outputs.get_mut(index) {
                         strip.name = trimmed_strip_name.to_owned();
                         strip.represented_node_name = normalized_node_name.clone();
+                        strip.represented_node_match = represented_node_match;
                     }
                 }
                 Group::Virtual => {
                     if let Some(strip) = self.config.virtual_outputs.get_mut(index) {
                         strip.name = trimmed_strip_name.to_owned();
                         strip.represented_node_name = normalized_node_name;
+                        strip.represented_node_match = represented_node_match;
                     }
                 }
             },

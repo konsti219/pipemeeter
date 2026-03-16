@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::config::NodeMatchProperty;
 use crate::pipewire_backend::{PwNode, PwObject, PwStateExt};
 
 use super::{Group, PipeMeeterApp, ResolvedNodeInfo, StripTarget};
@@ -26,27 +27,62 @@ fn node_display_text(node: &PwNode) -> String {
         .unwrap_or_else(|| "unknown".to_owned())
 }
 
+fn node_match_value<'a>(node: &'a PwNode, match_property: NodeMatchProperty) -> Option<&'a str> {
+    match match_property {
+        NodeMatchProperty::Name => {
+            let value = node.name.trim();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value)
+            }
+        }
+        NodeMatchProperty::Description => node
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        NodeMatchProperty::MediaName => node
+            .media_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        NodeMatchProperty::ProcessBinary => node
+            .process_binary
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    }
+}
+
 fn resolve_group<'a, I, F>(
     resolved: &mut HashMap<StripTarget, ResolvedNodeInfo>,
     nodes: &[&PwNode],
     strips: I,
     make_target: F,
 ) where
-    I: Iterator<Item = (usize, &'a str)>,
+    I: Iterator<Item = (usize, &'a str, NodeMatchProperty)>,
     F: Fn(usize) -> StripTarget,
 {
-    for (index, represented_node_name) in strips {
+    for (index, represented_node_name, represented_node_match) in strips {
         let requested_name = represented_node_name.trim();
         if requested_name.is_empty() {
             continue;
         }
 
-        // First try to find a node that matches both the name and the category, then fall back to matching just the name
+        // First try to find a node that matches both the selected property and category, then fall back to the selected property only.
         let target = make_target(index);
         let node = nodes
             .iter()
-            .find(|node| node.name == requested_name && node.category == target.node_filter())
-            .or_else(|| nodes.iter().find(|node| node.name == requested_name));
+            .find(|node| {
+                node_match_value(node, represented_node_match) == Some(requested_name)
+                    && node.category == target.node_filter()
+            })
+            .or_else(|| {
+                nodes
+                    .iter()
+                    .find(|node| node_match_value(node, represented_node_match) == Some(requested_name))
+            });
 
         if let Some(node) = node {
             resolved.insert(
@@ -96,7 +132,13 @@ impl PipeMeeterApp {
                 .physical_inputs
                 .iter()
                 .enumerate()
-                .map(|(idx, strip)| (idx, strip.represented_node_name.as_str())),
+                .map(|(idx, strip)| {
+                    (
+                        idx,
+                        strip.represented_node_name.as_str(),
+                        strip.represented_node_match,
+                    )
+                }),
             |index| StripTarget::Input {
                 group: Group::Physical,
                 index,
@@ -110,7 +152,13 @@ impl PipeMeeterApp {
                 .virtual_inputs
                 .iter()
                 .enumerate()
-                .map(|(idx, strip)| (idx, strip.represented_node_name.as_str())),
+                .map(|(idx, strip)| {
+                    (
+                        idx,
+                        strip.represented_node_name.as_str(),
+                        strip.represented_node_match,
+                    )
+                }),
             |index| StripTarget::Input {
                 group: Group::Virtual,
                 index,
@@ -124,7 +172,13 @@ impl PipeMeeterApp {
                 .physical_outputs
                 .iter()
                 .enumerate()
-                .map(|(idx, strip)| (idx, strip.represented_node_name.as_str())),
+                .map(|(idx, strip)| {
+                    (
+                        idx,
+                        strip.represented_node_name.as_str(),
+                        strip.represented_node_match,
+                    )
+                }),
             |index| StripTarget::Output {
                 group: Group::Physical,
                 index,
@@ -138,7 +192,13 @@ impl PipeMeeterApp {
                 .virtual_outputs
                 .iter()
                 .enumerate()
-                .map(|(idx, strip)| (idx, strip.represented_node_name.as_str())),
+                .map(|(idx, strip)| {
+                    (
+                        idx,
+                        strip.represented_node_name.as_str(),
+                        strip.represented_node_match,
+                    )
+                }),
             |index| StripTarget::Output {
                 group: Group::Virtual,
                 index,

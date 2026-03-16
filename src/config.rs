@@ -7,12 +7,35 @@ fn default_volume() -> f32 {
     1.0
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NodeMatchProperty {
+    #[default]
+    Name,
+    Description,
+    MediaName,
+    ProcessBinary,
+}
+
+impl NodeMatchProperty {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Name => "Name",
+            Self::Description => "Description",
+            Self::MediaName => "Media name",
+            Self::ProcessBinary => "Process binary",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputStripConfig {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
     pub represented_node_name: String,
+    #[serde(default)]
+    pub represented_node_match: NodeMatchProperty,
     #[serde(default = "default_volume")]
     pub volume: f32,
     #[serde(default)]
@@ -26,6 +49,7 @@ impl InputStripConfig {
         Self {
             name,
             represented_node_name: String::new(),
+            represented_node_match: NodeMatchProperty::Name,
             volume: 1.0,
             placeholder_meter: 0.0,
             routes_to_outputs: vec![false; output_count],
@@ -39,6 +63,8 @@ pub struct OutputStripConfig {
     pub name: String,
     #[serde(default)]
     pub represented_node_name: String,
+    #[serde(default)]
+    pub represented_node_match: NodeMatchProperty,
     #[serde(default = "default_volume")]
     pub volume: f32,
     #[serde(default)]
@@ -50,6 +76,7 @@ impl OutputStripConfig {
         Self {
             name,
             represented_node_name: String::new(),
+            represented_node_match: NodeMatchProperty::Name,
             volume: 1.0,
             placeholder_meter: 0.0,
         }

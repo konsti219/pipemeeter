@@ -1,14 +1,44 @@
 use eframe::egui;
 
+use crate::config::NodeMatchProperty;
 use crate::pipewire_backend::{PwNode, PwStateExt};
 
 use super::PipeMeeterApp;
 
 impl PipeMeeterApp {
+    fn node_match_value<'a>(node: &'a PwNode, match_property: NodeMatchProperty) -> Option<&'a str> {
+        match match_property {
+            NodeMatchProperty::Name => {
+                let value = node.name.trim();
+                if value.is_empty() {
+                    None
+                } else {
+                    Some(value)
+                }
+            }
+            NodeMatchProperty::Description => node
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+            NodeMatchProperty::MediaName => node
+                .media_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+            NodeMatchProperty::ProcessBinary => node
+                .process_binary
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        }
+    }
+
     fn draw_node_picker_list(
         ui: &mut egui::Ui,
         nodes: &[PwNode],
         draft_represented_node_name: &mut String,
+        draft_represented_node_match: NodeMatchProperty,
         id_salt: &str,
     ) {
         egui::ScrollArea::vertical()
@@ -22,17 +52,23 @@ impl PipeMeeterApp {
                 }
 
                 for node in nodes {
-                    let line = if let Some(description) = node.description.as_deref() {
-                        format!("#{} {} ({})", node.id, node.name, description)
+                    let selected_value = Self::node_match_value(node, draft_represented_node_match);
+                    let line = if let Some(value) = selected_value {
+                        format!("#{} {} [name: {}]", node.id, value, node.name)
                     } else {
-                        format!("#{} {}", node.id, node.name)
+                        format!("#{} <missing {}> [name: {}]", node.id, draft_represented_node_match.label(), node.name)
                     };
 
                     if ui
-                        .selectable_label(*draft_represented_node_name == node.name, line)
+                        .selectable_label(
+                            selected_value == Some(draft_represented_node_name.as_str()),
+                            line,
+                        )
                         .clicked()
                     {
-                        *draft_represented_node_name = node.name.clone();
+                        if let Some(value) = selected_value {
+                            *draft_represented_node_name = value.to_owned();
+                        }
                     }
                 }
             });
@@ -55,6 +91,7 @@ impl PipeMeeterApp {
         let mut action = None;
         let mut new_strip_name = String::new();
         let mut new_represented_node_name = String::new();
+        let mut new_represented_node_match = NodeMatchProperty::Name;
 
         let filter = dialog.target.node_filter();
         let (filtered_nodes, all_nodes) = {
@@ -80,7 +117,37 @@ impl PipeMeeterApp {
                 ui.text_edit_singleline(&mut dialog.draft_strip_name);
                 ui.add_space(8.0);
 
-                ui.label("Represented PipeWire node name");
+                ui.label("Match node by");
+                egui::ComboBox::from_id_salt("represented_node_match")
+                    .selected_text(dialog.draft_represented_node_match.label())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut dialog.draft_represented_node_match,
+                            NodeMatchProperty::Name,
+                            NodeMatchProperty::Name.label(),
+                        );
+                        ui.selectable_value(
+                            &mut dialog.draft_represented_node_match,
+                            NodeMatchProperty::Description,
+                            NodeMatchProperty::Description.label(),
+                        );
+                        ui.selectable_value(
+                            &mut dialog.draft_represented_node_match,
+                            NodeMatchProperty::MediaName,
+                            NodeMatchProperty::MediaName.label(),
+                        );
+                        ui.selectable_value(
+                            &mut dialog.draft_represented_node_match,
+                            NodeMatchProperty::ProcessBinary,
+                            NodeMatchProperty::ProcessBinary.label(),
+                        );
+                    });
+                ui.add_space(8.0);
+
+                ui.label(format!(
+                    "Represented node {}",
+                    dialog.draft_represented_node_match.label().to_lowercase()
+                ));
                 ui.text_edit_singleline(&mut dialog.draft_represented_node_name);
                 ui.add_space(8.0);
 
@@ -94,6 +161,7 @@ impl PipeMeeterApp {
                                 ui,
                                 &filtered_nodes,
                                 &mut dialog.draft_represented_node_name,
+                                dialog.draft_represented_node_match,
                                 "filtered_nodes_collapsed",
                             );
                             ui.add_space(6.0);
@@ -104,6 +172,7 @@ impl PipeMeeterApp {
                                         ui,
                                         &all_nodes,
                                         &mut dialog.draft_represented_node_name,
+                                        dialog.draft_represented_node_match,
                                         "all_nodes_nested",
                                     );
                                 });
@@ -114,6 +183,7 @@ impl PipeMeeterApp {
                         ui,
                         &filtered_nodes,
                         &mut dialog.draft_represented_node_name,
+                        dialog.draft_represented_node_match,
                         "filtered_nodes_visible",
                     );
                     ui.add_space(6.0);
@@ -124,6 +194,7 @@ impl PipeMeeterApp {
                                 ui,
                                 &all_nodes,
                                 &mut dialog.draft_represented_node_name,
+                                dialog.draft_represented_node_match,
                                 "all_nodes_expanded",
                             );
                         });
@@ -135,6 +206,7 @@ impl PipeMeeterApp {
                     if ui.button("Save").clicked() {
                         new_strip_name = dialog.draft_strip_name.clone();
                         new_represented_node_name = dialog.draft_represented_node_name.clone();
+                        new_represented_node_match = dialog.draft_represented_node_match;
                         action = Some(DialogAction::Save);
                     }
                     if ui.button("Delete").clicked() {
@@ -152,7 +224,12 @@ impl PipeMeeterApp {
 
         match action {
             Some(DialogAction::Save) => {
-                self.apply_dialog_update(dialog.target, new_strip_name, new_represented_node_name);
+                self.apply_dialog_update(
+                    dialog.target,
+                    new_strip_name,
+                    new_represented_node_name,
+                    new_represented_node_match,
+                );
                 self.edit_dialog = None;
             }
             Some(DialogAction::Delete) => {
