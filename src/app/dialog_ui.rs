@@ -99,7 +99,7 @@ impl PipeMeeterApp {
         let mut action = None;
         let mut new_strip_name = String::new();
         let mut new_represented_node_requirements = Vec::new();
-        let fallback_only = dialog.draft_represented_node_requirements.is_empty();
+        let fallback_only = self.is_default_strip(dialog.target);
 
         let filter = dialog.target.category;
         let (filtered_nodes, all_nodes) = {

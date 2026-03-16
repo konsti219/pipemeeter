@@ -93,9 +93,9 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             physical_inputs: Vec::new(),
-            virtual_inputs: vec![StripConfig::with_routes("Virtual In 1".to_owned(), 0)],
+            virtual_inputs: vec![StripConfig::with_routes("Defaut".to_owned(), 0)],
             physical_outputs: Vec::new(),
-            virtual_outputs: vec![StripConfig::new("Virtual Out 1".to_owned())],
+            virtual_outputs: vec![StripConfig::new("Defaut".to_owned())],
         }
     }
 }
@@ -136,11 +136,11 @@ impl AppConfig {
     pub fn normalize(&mut self) {
         if self.virtual_inputs.is_empty() {
             self.virtual_inputs
-                .push(StripConfig::with_routes("Virtual In 1".to_owned(), 0));
+                .push(StripConfig::with_routes("Defaut".to_owned(), 0));
         }
         if self.virtual_outputs.is_empty() {
             self.virtual_outputs
-                .push(StripConfig::new("Virtual Out 1".to_owned()));
+                .push(StripConfig::new("Defaut".to_owned()));
         }
 
         for input in self

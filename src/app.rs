@@ -184,6 +184,13 @@ impl PipeMeeterApp {
         }
     }
 
+    fn is_default_strip(&self, target: StripTarget) -> bool {
+        matches!(
+            target.category,
+            PwNodeCategory::PlaybackStream | PwNodeCategory::RecordingStream
+        ) && target.index == 0
+    }
+
     fn global_output_index(&self, group: Group, index: usize) -> usize {
         match group {
             Group::Physical => index,
@@ -289,10 +296,7 @@ impl PipeMeeterApp {
             })
             .collect::<Vec<_>>();
 
-        let fallback_only = self
-            .strip_ref(target)
-            .map(|strip| strip.represented_node_requirements.is_empty())
-            .unwrap_or(false);
+        let fallback_only = self.is_default_strip(target);
 
         let applied_requirements = if fallback_only {
             Vec::new()
