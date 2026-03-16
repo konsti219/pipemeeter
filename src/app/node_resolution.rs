@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::pipewire_backend::{PwNode, PwObject};
+use crate::pipewire_backend::{PwNode, PwObject, PwStateExt};
 
 use super::{Group, PipeMeeterApp, ResolvedNodeInfo, StripTarget};
 
@@ -41,7 +41,14 @@ fn resolve_group<'a, I, F>(
             continue;
         }
 
-        if let Some(node) = nodes.iter().find(|node| node.name == requested_name) {
+        // First try to find a node that matches both the name and the category, then fall back to matching just the name
+        let target = make_target(index);
+        let node = nodes
+            .iter()
+            .find(|node| node.name == requested_name && node.category == target.node_filter())
+            .or_else(|| nodes.iter().find(|node| node.name == requested_name));
+
+        if let Some(node) = node {
             resolved.insert(
                 make_target(index),
                 ResolvedNodeInfo {
@@ -76,15 +83,8 @@ impl PipeMeeterApp {
 
     pub(super) fn refresh_resolved_nodes(&mut self) {
         let objects = self.backend.objects.lock().unwrap();
-        let mut nodes = objects
-            .values()
-            .filter_map(|object| {
-                let PwObject::Node(node) = object else {
-                    return None;
-                };
-                Some(node)
-            })
-            .collect::<Vec<_>>();
+
+        let mut nodes = objects.nodes().collect::<Vec<_>>();
         nodes.sort_by_key(|node| node.id);
 
         let mut resolved_nodes = HashMap::new();

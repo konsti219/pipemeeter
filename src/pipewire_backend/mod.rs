@@ -228,27 +228,10 @@ pub trait PwStateExt {
 
 impl PwStateExt for PwState {
     fn nodes(&self) -> impl Iterator<Item = &PwNode> {
-        let monitor_node_ids: HashSet<(u32, PortDirection)> = self
-            .values()
-            .filter_map(|obj| {
-                let PwObject::Port(port) = obj else {
-                    return None;
-                };
-                if port.monitor {
-                    Some((port.node_id, port.direction))
-                } else {
-                    None
-                }
-            })
-            .collect();
-
         self.values().filter_map(move |obj| {
             let PwObject::Node(node) = obj else {
                 return None;
             };
-            // if monitor_node_ids.contains(&(node.id, node.category.direction())) {
-            //     return None;
-            // }
             Some(node)
         })
     }

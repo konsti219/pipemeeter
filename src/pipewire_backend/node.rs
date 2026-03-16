@@ -13,6 +13,7 @@ pub struct PwNode {
     pub client_id: Option<u32>,
     pub client_api: Option<String>,
     pub device_id: Option<u32>,
+    pub process_binary: Option<String>,
     pub volume: [f32; 2],
 }
 
@@ -59,6 +60,10 @@ pub(super) fn handle_node_global(
                 .props()
                 .and_then(|p| p.get(&STREAM_MONITOR))
                 .map_or(false, |v| v == "true");
+            let process_binary = info
+                .props()
+                .and_then(|p| p.get(&APP_PROCESS_BINARY))
+                .map(ToOwned::to_owned);
 
             let mut objects = objects_info.lock().unwrap();
             if let Some(PwObject::Node(node)) = objects.get_mut(&node_id) {
@@ -75,6 +80,10 @@ pub(super) fn handle_node_global(
                     node.category = classify_media_class(media_class.as_deref());
                 } else {
                     node.category = PwNodeCategory::Other;
+                }
+
+                if let Some(process_binary) = process_binary {
+                    node.process_binary = Some(process_binary);
                 }
             }
         })
@@ -106,6 +115,7 @@ pub(super) fn handle_node_global(
         client_id: props.get(&CLIENT_ID).map(|v| v.parse::<u32>().unwrap()),
         client_api: props.get(&CLIENT_API).map(ToOwned::to_owned),
         device_id: props.get(&DEVICE_ID).map(|v| v.parse::<u32>().unwrap()),
+        process_binary: None,
         volume: [1.0, 1.0],
     };
     objects.insert(global.id, PwObject::Node(node));
