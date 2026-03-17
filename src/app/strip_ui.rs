@@ -169,7 +169,8 @@ impl PipeMeeterApp {
                         ui.horizontal(|ui| {
                             draw_placeholder_meter(
                                 ui,
-                                resolved_meter_level.unwrap_or(strip.placeholder_meter),
+                                resolved_meter_level
+                                    .unwrap_or([strip.placeholder_meter, strip.placeholder_meter]),
                                 egui::vec2(32.0, 250.0),
                             );
                             let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
@@ -308,7 +309,8 @@ impl PipeMeeterApp {
                         ui.horizontal(|ui| {
                             draw_placeholder_meter(
                                 ui,
-                                resolved_meter_level.unwrap_or(strip.placeholder_meter),
+                                resolved_meter_level
+                                    .unwrap_or([strip.placeholder_meter, strip.placeholder_meter]),
                                 egui::vec2(32.0, 250.0),
                             );
                             let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);

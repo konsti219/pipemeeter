@@ -16,7 +16,7 @@ pub fn apply_voicemeeter_like_theme(ctx: &egui::Context) {
     ctx.set_visuals(visuals);
 }
 
-pub fn draw_placeholder_meter(ui: &mut egui::Ui, level: f32, size: egui::Vec2) {
+pub fn draw_placeholder_meter(ui: &mut egui::Ui, levels: [f32; 2], size: egui::Vec2) {
     const CHANNEL_WIDTH: f32 = 15.0;
     const CHANNEL_GAP: f32 = 2.0;
     const CORNER_RADIUS: f32 = 2.0;
@@ -50,13 +50,13 @@ pub fn draw_placeholder_meter(ui: &mut egui::Ui, level: f32, size: egui::Vec2) {
         );
     }
 
-    let clamped = level.clamp(0.0, 1.0);
-    if clamped <= 0.0 {
-        return;
-    }
+    for (channel_rect, level) in [(left_rect, levels[0]), (right_rect, levels[1])] {
+        let clamped = level.clamp(0.0, 1.0);
+        if clamped <= 0.0 {
+            continue;
+        }
 
-    let fill_height = rect.height() * clamped;
-    for channel_rect in [left_rect, right_rect] {
+        let fill_height = rect.height() * clamped;
         let fill_rect = egui::Rect::from_min_max(
             egui::pos2(
                 channel_rect.left() + INNER_MARGIN,

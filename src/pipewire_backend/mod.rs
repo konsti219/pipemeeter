@@ -158,7 +158,7 @@ fn send_reply(reply: mpsc::Sender<Result<()>>, res: Result<()>) {
 
 pub struct PipewireBackend {
     pub objects: Arc<Mutex<PwState>>,
-    meters: Arc<Mutex<HashMap<u32, f32>>>,
+    meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>,
 
     command_tx: pw::channel::Sender<BackendCommand>,
     handle: Option<JoinHandle<Result<()>>>,
@@ -175,7 +175,7 @@ pub struct NodeSummary {
 impl PipewireBackend {
     pub fn new() -> Result<Self> {
         let objects = Arc::new(Mutex::new(HashMap::new()));
-        let meters = Arc::new(Mutex::new(HashMap::new()));
+        let meters = Arc::new(Mutex::new(HashMap::<u32, [f32; 2]>::new()));
         let (command_tx, command_rx) = pw::channel::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
 
@@ -231,7 +231,7 @@ impl PipewireBackend {
         self.request(|reply| BackendCommand::SyncVirtualMeters { names, reply })
     }
 
-    pub fn node_peak_meter(&self, node_id: u32) -> Option<f32> {
+    pub fn node_peak_meter(&self, node_id: u32) -> Option<[f32; 2]> {
         self.meters.lock().unwrap().get(&node_id).copied()
     }
 

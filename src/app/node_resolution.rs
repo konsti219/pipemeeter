@@ -215,7 +215,7 @@ impl PipeMeeterApp {
         self.node_volume_slider_value(first_node.id)
     }
 
-    pub(super) fn resolved_meter_level(&self, target: StripTarget) -> Option<f32> {
+    pub(super) fn resolved_meter_level(&self, target: StripTarget) -> Option<[f32; 2]> {
         match target.category {
             PwNodeCategory::PlaybackStream => self
                 .virtual_input_combined_node_id(target.index)

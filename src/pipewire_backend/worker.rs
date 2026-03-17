@@ -2,7 +2,7 @@ use super::*;
 
 pub fn pipewire_worker(
     objects: Arc<Mutex<PwState>>,
-    meters: Arc<Mutex<HashMap<u32, f32>>>,
+    meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>,
     cmd_rx: pw::channel::Receiver<BackendCommand>,
     ready_tx: mpsc::Sender<Result<()>>,
 ) -> JoinHandle<Result<()>> {

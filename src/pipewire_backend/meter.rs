@@ -21,13 +21,17 @@ struct MeterTap {
     _listener: pw::stream::StreamListener<MeterUserData>,
 }
 
+fn linear_peak_to_meter_level(peak: f32) -> f32 {
+    peak.max(0.0).cbrt()
+}
+
 pub struct MeterManager {
-    meters: Arc<Mutex<HashMap<u32, f32>>>,
+    meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>,
     taps: HashMap<u32, MeterTap>,
 }
 
 impl MeterManager {
-    pub fn new(meters: Arc<Mutex<HashMap<u32, f32>>>) -> Self {
+    pub fn new(meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>) -> Self {
         Self {
             meters,
             taps: HashMap::new(),
@@ -106,7 +110,7 @@ impl MeterManager {
 fn create_meter_tap(
     core: &pw::core::CoreRc,
     node_id: u32,
-    meters: Arc<Mutex<HashMap<u32, f32>>>,
+    meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>,
 ) -> Result<MeterTap> {
     let props = properties! {
         *pw::keys::MEDIA_TYPE => "Audio",
@@ -148,7 +152,7 @@ fn create_meter_tap(
 
             let _ = user_data.format.parse(param);
         })
-        .process(move |stream, _user_data| {
+        .process(move |stream, user_data| {
             let Some(mut buffer) = stream.dequeue_buffer() else {
                 return;
             };
@@ -167,26 +171,43 @@ fn create_meter_tap(
                 return;
             };
 
-            let mut peak = 0.0_f32;
-            let mut idx = 0usize;
-            while idx + mem::size_of::<f32>() <= samples.len() {
-                let bytes = [
-                    samples[idx],
-                    samples[idx + 1],
-                    samples[idx + 2],
-                    samples[idx + 3],
-                ];
-                let value = f32::from_le_bytes(bytes).abs();
-                if value > peak {
-                    peak = value;
-                }
-                idx += mem::size_of::<f32>();
+            let n_channels = user_data.format.channels().max(1) as usize;
+            let frame_count = n_samples / n_channels;
+            if frame_count == 0 {
+                return;
             }
 
-            peak_store
-                .lock()
-                .unwrap()
-                .insert(node_id, peak.clamp(0.0, 1.0));
+            let mut peaks = [0.0_f32, 0.0_f32];
+
+            for frame in 0..frame_count {
+                for channel in 0..2 {
+                    let channel_idx = channel.min(n_channels - 1);
+                    let sample_idx = frame * n_channels + channel_idx;
+                    let byte_idx = sample_idx * mem::size_of::<f32>();
+                    if byte_idx + mem::size_of::<f32>() > samples.len() {
+                        continue;
+                    }
+
+                    let bytes = [
+                        samples[byte_idx],
+                        samples[byte_idx + 1],
+                        samples[byte_idx + 2],
+                        samples[byte_idx + 3],
+                    ];
+                    let value = f32::from_le_bytes(bytes).abs();
+                    if value > peaks[channel] {
+                        peaks[channel] = value;
+                    }
+                }
+            }
+
+            peak_store.lock().unwrap().insert(
+                node_id,
+                [
+                    linear_peak_to_meter_level(peaks[0]),
+                    linear_peak_to_meter_level(peaks[1]),
+                ],
+            );
         })
         .register()?;
 
