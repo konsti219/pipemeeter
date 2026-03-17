@@ -186,6 +186,15 @@ fn format_resolved_title(resolved: &Vec<ResolvedNodeEntry>) -> (String, Option<S
 }
 
 impl PipeMeeterApp {
+    fn node_volume_slider_value(&self, node_id: u32) -> Option<f32> {
+        let objects = self.backend.objects.lock().unwrap();
+        let PwObject::Node(node) = objects.get(&node_id)? else {
+            return None;
+        };
+
+        Some(super::volume::pipewire_stereo_to_human_slider(node.volume))
+    }
+
     pub(super) fn resolved_node_ids(&self, target: StripTarget) -> Vec<u32> {
         self.resolved_nodes
             .get(&target)
@@ -203,18 +212,28 @@ impl PipeMeeterApp {
     pub(super) fn resolved_volume_slider_value(&self, target: StripTarget) -> Option<f32> {
         let resolved = self.resolved_nodes.get(&target)?;
         let first_node = resolved.first()?;
-        let objects = self.backend.objects.lock().unwrap();
-        let PwObject::Node(node) = objects.get(&first_node.id)? else {
-            return None;
-        };
+        self.node_volume_slider_value(first_node.id)
+    }
 
-        Some(super::volume::pipewire_stereo_to_human_slider(node.volume))
+    pub(super) fn resolved_meter_level(&self, target: StripTarget) -> Option<f32> {
+        match target.category {
+            PwNodeCategory::PlaybackStream => self
+                .virtual_input_combined_node_id(target.index)
+                .and_then(|id| self.backend.node_peak_meter(id)),
+            PwNodeCategory::RecordingStream => self
+                .virtual_output_combined_node_id(target.index)
+                .and_then(|id| self.backend.node_peak_meter(id)),
+            _ => None,
+        }
     }
 
     pub(super) fn refresh_resolved_nodes(&mut self) {
         let objects = self.backend.objects.lock().unwrap();
 
-        let mut nodes = objects.nodes().collect::<Vec<_>>();
+        let mut nodes = objects
+            .nodes()
+            .filter(|node| node.category != PwNodeCategory::Pipemeeter)
+            .collect::<Vec<_>>();
         nodes.sort_by_key(|node| node.id);
 
         let mut resolved_nodes = HashMap::new();

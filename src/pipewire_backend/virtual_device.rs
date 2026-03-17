@@ -4,6 +4,10 @@ use super::*;
 
 pub const VIRTUAL_DEVICE_PREFIX: &str = "pipemeeter/";
 
+fn is_virtual_device_name(name: &str) -> bool {
+    name.starts_with("pipemeeter/vin-") || name.starts_with("pipemeeter/vout-")
+}
+
 fn destroy_nodes_by_id(
     registry: &pw::registry::RegistryRc,
     ids: impl IntoIterator<Item = u32>,
@@ -41,6 +45,7 @@ pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result
                 "monitor.channel-volumes" => "true",
                 "object.linger" => "true",
                 "pipemeeter.managed" => "true",
+                "pipemeeter.kind" => "virtual_device",
             },
         )
         .context("failed to create virtual device")?;
@@ -65,7 +70,11 @@ pub fn sync_managed_virtual_devices_impl(
                 continue;
             };
 
-            if !node.name.starts_with(VIRTUAL_DEVICE_PREFIX) {
+            if node.category != PwNodeCategory::Pipemeeter {
+                continue;
+            }
+
+            if !is_virtual_device_name(&node.name) {
                 continue;
             };
 
@@ -106,7 +115,12 @@ pub fn remove_managed_virtual_devices_impl(
         state
             .iter()
             .filter_map(|(id, obj)| match obj {
-                PwObject::Node(node) if node.name.starts_with(VIRTUAL_DEVICE_PREFIX) => Some(*id),
+                PwObject::Node(node)
+                    if node.category == PwNodeCategory::Pipemeeter
+                        && is_virtual_device_name(&node.name) =>
+                {
+                    Some(*id)
+                }
                 _ => None,
             })
             .collect::<Vec<_>>()

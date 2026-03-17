@@ -28,6 +28,8 @@ mod port;
 pub use port::*;
 mod worker;
 use worker::*;
+mod meter;
+use meter::*;
 
 type PwProxies = HashMap<u32, PwProxy>;
 pub type PwState = HashMap<u32, PwObject>;
@@ -136,6 +138,10 @@ enum BackendCommand {
         links: Vec<DesiredNodeLink>,
         reply: mpsc::Sender<Result<()>>,
     },
+    SyncVirtualMeters {
+        names: Vec<String>,
+        reply: mpsc::Sender<Result<()>>,
+    },
     CleanupManagedObjects {
         reply: mpsc::Sender<Result<()>>,
     },
@@ -152,6 +158,7 @@ fn send_reply(reply: mpsc::Sender<Result<()>>, res: Result<()>) {
 
 pub struct PipewireBackend {
     pub objects: Arc<Mutex<PwState>>,
+    meters: Arc<Mutex<HashMap<u32, f32>>>,
 
     command_tx: pw::channel::Sender<BackendCommand>,
     handle: Option<JoinHandle<Result<()>>>,
@@ -168,10 +175,11 @@ pub struct NodeSummary {
 impl PipewireBackend {
     pub fn new() -> Result<Self> {
         let objects = Arc::new(Mutex::new(HashMap::new()));
+        let meters = Arc::new(Mutex::new(HashMap::new()));
         let (command_tx, command_rx) = pw::channel::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
 
-        let handle = pipewire_worker(objects.clone(), command_rx, ready_tx);
+        let handle = pipewire_worker(objects.clone(), meters.clone(), command_rx, ready_tx);
         match ready_rx.recv_timeout(COMMAND_TIMEOUT) {
             Ok(Ok(())) => {}
             Ok(Err(err)) => return Err(err),
@@ -182,6 +190,7 @@ impl PipewireBackend {
 
         Ok(Self {
             objects,
+            meters,
             command_tx,
             handle: Some(handle),
         })
@@ -216,6 +225,14 @@ impl PipewireBackend {
 
     pub fn sync_routing(&self, links: Vec<DesiredNodeLink>) -> Result<()> {
         self.request(|reply| BackendCommand::SyncRouting { links, reply })
+    }
+
+    pub fn sync_virtual_meters(&self, names: Vec<String>) -> Result<()> {
+        self.request(|reply| BackendCommand::SyncVirtualMeters { names, reply })
+    }
+
+    pub fn node_peak_meter(&self, node_id: u32) -> Option<f32> {
+        self.meters.lock().unwrap().get(&node_id).copied()
     }
 
     pub fn cleanup_managed_objects(&self) -> Result<()> {

@@ -163,7 +163,7 @@ impl PipeMeeterApp {
             PwNodeCategory::PlaybackStream => self.config.virtual_inputs.get(target.index),
             PwNodeCategory::OutputDevice => self.config.physical_outputs.get(target.index),
             PwNodeCategory::RecordingStream => self.config.virtual_outputs.get(target.index),
-            PwNodeCategory::Other => None,
+            PwNodeCategory::Pipemeeter | PwNodeCategory::Other => None,
         }
     }
 
@@ -173,7 +173,7 @@ impl PipeMeeterApp {
             PwNodeCategory::PlaybackStream => self.config.virtual_inputs.get_mut(target.index),
             PwNodeCategory::OutputDevice => self.config.physical_outputs.get_mut(target.index),
             PwNodeCategory::RecordingStream => self.config.virtual_outputs.get_mut(target.index),
-            PwNodeCategory::Other => None,
+            PwNodeCategory::Pipemeeter | PwNodeCategory::Other => None,
         }
     }
 
@@ -237,7 +237,7 @@ impl PipeMeeterApp {
                     }
                 }
             }
-            PwNodeCategory::Other => {}
+            PwNodeCategory::Pipemeeter | PwNodeCategory::Other => {}
         }
 
         self.persist_config();

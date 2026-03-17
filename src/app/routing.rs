@@ -18,6 +18,14 @@ fn virtual_output_combined_name(index: usize) -> String {
 }
 
 impl PipeMeeterApp {
+    pub(super) fn virtual_input_combined_node_id(&self, index: usize) -> Option<u32> {
+        self.managed_node_id(&virtual_input_combined_name(index))
+    }
+
+    pub(super) fn virtual_output_combined_node_id(&self, index: usize) -> Option<u32> {
+        self.managed_node_id(&virtual_output_combined_name(index))
+    }
+
     fn managed_virtual_strip_names(&self) -> Vec<String> {
         let mut names = Vec::new();
 
@@ -78,10 +86,10 @@ impl PipeMeeterApp {
 
     fn desired_routing_links(&self) -> Vec<DesiredNodeLink> {
         let virtual_input_combined_ids = (0..self.config.virtual_inputs.len())
-            .map(|index| self.managed_node_id(&virtual_input_combined_name(index)))
+            .map(|index| self.virtual_input_combined_node_id(index))
             .collect::<Vec<_>>();
         let virtual_output_combined_ids = (0..self.config.virtual_outputs.len())
-            .map(|index| self.managed_node_id(&virtual_output_combined_name(index)))
+            .map(|index| self.virtual_output_combined_node_id(index))
             .collect::<Vec<_>>();
 
         let mut desired = HashSet::new();
@@ -185,8 +193,7 @@ impl PipeMeeterApp {
 
     fn sync_virtual_input_combined_volumes(&mut self) {
         for index in 0..self.config.virtual_inputs.len() {
-            let Some(combined_node_id) = self.managed_node_id(&virtual_input_combined_name(index))
-            else {
+            let Some(combined_node_id) = self.virtual_input_combined_node_id(index) else {
                 continue;
             };
 
@@ -229,9 +236,7 @@ impl PipeMeeterApp {
 
     pub(super) fn apply_virtual_input_slider_volume(&mut self, index: usize, slider: f32) {
         if let Some(app_node_id) = self.virtual_input_single_explicit_app_node(index) {
-            if let Some(combined_node_id) =
-                self.managed_node_id(&virtual_input_combined_name(index))
-            {
+            if let Some(combined_node_id) = self.virtual_input_combined_node_id(index) {
                 if let Err(err) = self.backend.set_node_volume(combined_node_id, 1.0) {
                     self.status = format!(
                         "failed to reset virtual input combined volume for node #{}: {err}",
@@ -250,8 +255,7 @@ impl PipeMeeterApp {
             return;
         }
 
-        let Some(combined_node_id) = self.managed_node_id(&virtual_input_combined_name(index))
-        else {
+        let Some(combined_node_id) = self.virtual_input_combined_node_id(index) else {
             return;
         };
         let linear = super::volume::human_slider_to_pipewire_linear(slider);
@@ -275,6 +279,14 @@ impl PipeMeeterApp {
 
         if let Err(err) = self.sync_managed_virtual_nodes() {
             self.status = format!("failed to sync managed virtual nodes: {err}");
+            return;
+        }
+
+        if let Err(err) = self
+            .backend
+            .sync_virtual_meters(self.managed_virtual_strip_names())
+        {
+            self.status = format!("failed to sync virtual meters: {err}");
             return;
         }
 

@@ -23,6 +23,7 @@ pub enum PwNodeCategory {
     InputDevice,
     PlaybackStream,
     RecordingStream,
+    Pipemeeter,
     Other,
 }
 
@@ -47,6 +48,10 @@ pub(super) fn handle_node_global(
         .add_listener_local()
         .info(move |info| {
             let media_name = info.props().and_then(|p| p.get(&MEDIA_NAME)).owned();
+            let managed_by_pipemeeter = info
+                .props()
+                .and_then(|p| p.get("pipemeeter.managed"))
+                .is_some();
             let process_binary = info
                 .props()
                 .and_then(|p| p.get(&APP_PROCESS_BINARY))
@@ -71,10 +76,15 @@ pub(super) fn handle_node_global(
                     node.process_binary = Some(process_binary);
                 }
 
-                if !monitor && node.category != PwNodeCategory::Other {
-                    node.category = classify_media_class(media_class.as_deref());
-                } else {
-                    node.category = PwNodeCategory::Other;
+                if !matches!(
+                    node.category,
+                    PwNodeCategory::Other | PwNodeCategory::Pipemeeter
+                ) {
+                    node.category = classify_node_category(
+                        media_class.as_deref(),
+                        monitor,
+                        managed_by_pipemeeter,
+                    );
                 }
             }
         })
@@ -100,7 +110,11 @@ pub(super) fn handle_node_global(
         description: props.get(&pw::keys::NODE_DESCRIPTION).owned(),
         nick: props.get(&pw::keys::NODE_NICK).owned(),
         media_class: props.get(&MEDIA_CLASS).owned(),
-        category: classify_media_class(props.get(&MEDIA_CLASS)),
+        category: classify_node_category(
+            props.get(&MEDIA_CLASS),
+            props.get(&STREAM_MONITOR).is_some_and(|v| v == "true"),
+            props.get("pipemeeter.managed").is_some(),
+        ),
         media_name: None, // never in the static properties
         // factory_id: props.get(&FACTORY_ID).unwrap().parse::<u32>().unwrap(),
         // client_id: props.get(&CLIENT_ID).map(|v| v.parse::<u32>().unwrap()),
@@ -131,6 +145,22 @@ fn classify_media_class(media_class: Option<&str>) -> PwNodeCategory {
     } else {
         PwNodeCategory::Other
     }
+}
+
+fn classify_node_category(
+    media_class: Option<&str>,
+    monitor: bool,
+    managed_by_pipemeeter: bool,
+) -> PwNodeCategory {
+    if managed_by_pipemeeter {
+        return PwNodeCategory::Pipemeeter;
+    }
+
+    if monitor {
+        return PwNodeCategory::Other;
+    }
+
+    classify_media_class(media_class)
 }
 
 pub(super) fn set_node_volume_impl(

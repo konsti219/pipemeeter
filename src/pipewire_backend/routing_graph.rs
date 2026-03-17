@@ -2,6 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::*;
 
+const METER_TAP_NODE_PREFIX: &str = "pipemeeter/meter-";
+
 fn managed_virtual_strip_nodes(state: &PwState) -> HashSet<u32> {
     state
         .values()
@@ -10,7 +12,10 @@ fn managed_virtual_strip_nodes(state: &PwState) -> HashSet<u32> {
                 return None;
             };
 
-            if node.name.starts_with(VIRTUAL_DEVICE_PREFIX) {
+            if node.category == PwNodeCategory::Pipemeeter
+                && (node.name.starts_with("pipemeeter/vin-")
+                    || node.name.starts_with("pipemeeter/vout-"))
+            {
                 Some(node.id)
             } else {
                 None
@@ -69,6 +74,35 @@ fn infer_managed_client_id(state: &PwState) -> Option<u32> {
             None
         }
     })
+}
+
+fn desired_meter_tap_node_links(state: &PwState) -> Vec<DesiredNodeLink> {
+    state
+        .values()
+        .filter_map(|obj| {
+            let PwObject::Node(node) = obj else {
+                return None;
+            };
+
+            if node.category != PwNodeCategory::Pipemeeter {
+                return None;
+            }
+
+            let target_node_id = node
+                .name
+                .strip_prefix(METER_TAP_NODE_PREFIX)
+                .and_then(|value| value.parse::<u32>().ok())?;
+
+            if !state.contains_key(&target_node_id) {
+                return None;
+            }
+
+            Some(DesiredNodeLink {
+                output_node: target_node_id,
+                input_node: node.id,
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -136,8 +170,11 @@ pub fn sync_routing_impl(
         let in_ports_by_node =
             audio_ports_by_node(&state, PortDirection::In, &monitor_output_nodes);
 
+        let mut all_desired_node_links = desired_node_links.to_vec();
+        all_desired_node_links.extend(desired_meter_tap_node_links(&state));
+
         let mut desired_port_links = HashSet::new();
-        for link in desired_node_links {
+        for link in &all_desired_node_links {
             let out_category = node_category
                 .get(&link.output_node)
                 .copied()

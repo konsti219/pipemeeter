@@ -135,6 +135,10 @@ impl PipeMeeterApp {
                         Group::Physical => self.resolved_volume_slider_value(target),
                         Group::Virtual => None,
                     };
+                    let resolved_meter_level = match group {
+                        Group::Physical => None,
+                        Group::Virtual => self.resolved_meter_level(target),
+                    };
                     let resolved_node_ids = self.resolved_node_ids(target);
                     let mut open_dialog = false;
                     let mut changed_volume = None;
@@ -165,7 +169,7 @@ impl PipeMeeterApp {
                         ui.horizontal(|ui| {
                             draw_placeholder_meter(
                                 ui,
-                                strip.placeholder_meter,
+                                resolved_meter_level.unwrap_or(strip.placeholder_meter),
                                 egui::vec2(32.0, 250.0),
                             );
                             let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
@@ -270,6 +274,10 @@ impl PipeMeeterApp {
                     let target = StripTarget::new(index, category);
                     let resolved_node_title = self.resolved_node_title(target);
                     let resolved_slider_value = self.resolved_volume_slider_value(target);
+                    let resolved_meter_level = match group {
+                        Group::Physical => None,
+                        Group::Virtual => self.resolved_meter_level(target),
+                    };
                     let resolved_node_ids = self.resolved_node_ids(target);
                     let mut open_dialog = false;
                     let mut changed_volume = None;
@@ -300,7 +308,7 @@ impl PipeMeeterApp {
                         ui.horizontal(|ui| {
                             draw_placeholder_meter(
                                 ui,
-                                strip.placeholder_meter,
+                                resolved_meter_level.unwrap_or(strip.placeholder_meter),
                                 egui::vec2(32.0, 250.0),
                             );
                             let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);

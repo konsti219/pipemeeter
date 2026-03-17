@@ -2,6 +2,7 @@ use super::*;
 
 pub fn pipewire_worker(
     objects: Arc<Mutex<PwState>>,
+    meters: Arc<Mutex<HashMap<u32, f32>>>,
     cmd_rx: pw::channel::Receiver<BackendCommand>,
     ready_tx: mpsc::Sender<Result<()>>,
 ) -> JoinHandle<Result<()>> {
@@ -175,6 +176,7 @@ pub fn pipewire_worker(
             .register();
 
         let cmd_mainloop = mainloop.clone();
+        let meter_manager = RefCell::new(MeterManager::new(meters));
 
         // This receiver is attached to PipeWire's loop and wakes it through an internal pipe,
         // so frontend commands are processed even when no PipeWire graph events occur.
@@ -198,6 +200,14 @@ pub fn pipewire_worker(
             BackendCommand::SyncRouting { links, reply } => {
                 send_reply(reply, sync_routing_impl(&core, &registry, &objects, &links));
             }
+            BackendCommand::SyncVirtualMeters { names, reply } => {
+                send_reply(
+                    reply,
+                    meter_manager
+                        .borrow_mut()
+                        .sync_virtual_nodes(&core, &objects, &names),
+                );
+            }
             BackendCommand::CleanupManagedObjects { reply } => {
                 send_reply(
                     reply,
@@ -206,6 +216,7 @@ pub fn pipewire_worker(
                 );
             }
             BackendCommand::Shutdown { reply } => {
+                meter_manager.borrow_mut().clear();
                 if let Err(err) = remove_managed_links_impl(&registry, &objects) {
                     error!("failed to cleanup managed links on shutdown: {err}");
                 }
