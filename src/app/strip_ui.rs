@@ -36,6 +36,7 @@ fn draw_strip_header(
 
         ui.scope(|ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            ui.spacing_mut().item_spacing.y = 0.0;
             ui.colored_label(color, first_line);
             ui.colored_label(color, second_line);
         });
@@ -130,7 +131,10 @@ impl PipeMeeterApp {
                 for index in 0..len {
                     let target = StripTarget::new(index, category);
                     let resolved_node_title = self.resolved_node_title(target);
-                    let resolved_slider_value = self.resolved_volume_slider_value(target);
+                    let resolved_slider_value = match group {
+                        Group::Physical => self.resolved_volume_slider_value(target),
+                        Group::Virtual => None,
+                    };
                     let resolved_node_ids = self.resolved_node_ids(target);
                     let mut open_dialog = false;
                     let mut changed_volume = None;
