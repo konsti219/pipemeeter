@@ -17,14 +17,14 @@ use crate::config::{
 };
 use crate::pipewire_backend::{PipewireBackend, PwNodeCategory, PwStateExt};
 use crate::ui::apply_voicemeeter_like_theme;
-use types::{EditDialogState, Group, ResolvedNodeEntry, ResolvedNodeInfo, StripTarget};
+use types::{EditDialogState, Group, ResolvedNodeEntry, StripTarget};
 
 pub struct PipeMeeterApp {
     config_path: PathBuf,
     config: AppConfig,
 
     backend: PipewireBackend,
-    resolved_nodes: HashMap<StripTarget, ResolvedNodeInfo>,
+    resolved_nodes: HashMap<StripTarget, Vec<ResolvedNodeEntry>>,
 
     status: String,
     edit_dialog: Option<EditDialogState>,
@@ -182,7 +182,7 @@ impl PipeMeeterApp {
             self.edit_dialog = Some(EditDialogState {
                 target,
                 draft_strip_name: strip.name.clone(),
-                draft_represented_node_requirements: strip.represented_node_requirements.clone(),
+                draft_represented_node_requirements: strip.requirements.clone(),
                 selected_requirement_index: 0,
             });
         }
@@ -310,7 +310,7 @@ impl PipeMeeterApp {
 
         if let Some(strip) = self.strip_mut(target) {
             strip.name = trimmed_strip_name.to_owned();
-            strip.represented_node_requirements = applied_requirements;
+            strip.requirements = applied_requirements;
         }
 
         self.persist_config();

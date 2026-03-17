@@ -50,7 +50,7 @@ pub struct StripConfig {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
-    pub represented_node_requirements: Vec<NodeMatchRequirement>,
+    pub requirements: Vec<NodeMatchRequirement>,
     #[serde(default = "default_volume")]
     pub volume: f32,
     #[serde(default)]
@@ -63,7 +63,7 @@ impl StripConfig {
     pub fn with_routes(name: String, output_count: usize) -> Self {
         Self {
             name,
-            represented_node_requirements: Vec::new(),
+            requirements: Vec::new(),
             volume: 1.0,
             placeholder_meter: 0.0,
             routes_to_outputs: vec![false; output_count],
@@ -72,7 +72,7 @@ impl StripConfig {
     pub fn new(name: String) -> Self {
         Self {
             name,
-            represented_node_requirements: Vec::new(),
+            requirements: Vec::new(),
             volume: 1.0,
             placeholder_meter: 0.0,
             routes_to_outputs: Vec::new(),
@@ -107,7 +107,7 @@ impl AppConfig {
         }
 
         strip
-            .represented_node_requirements
+            .requirements
             .retain(|requirement| !requirement.pattern.trim().is_empty());
 
         strip.volume = strip.volume.clamp(0.0, 1.0);
@@ -163,7 +163,7 @@ impl AppConfig {
         if !self
             .virtual_inputs
             .iter()
-            .any(|strip| strip.represented_node_requirements.is_empty())
+            .any(|strip| strip.requirements.is_empty())
         {
             let output_count = self.output_count();
             self.virtual_inputs.push(StripConfig::with_routes(
@@ -175,18 +175,13 @@ impl AppConfig {
         if !self
             .virtual_outputs
             .iter()
-            .any(|strip| strip.represented_node_requirements.is_empty())
+            .any(|strip| strip.requirements.is_empty())
         {
             self.virtual_outputs.push(StripConfig::new(format!(
                 "Virtual Out {}",
                 self.virtual_outputs.len() + 1
             )));
         }
-
-        self.virtual_inputs
-            .sort_by_key(|strip| !strip.represented_node_requirements.is_empty());
-        self.virtual_outputs
-            .sort_by_key(|strip| !strip.represented_node_requirements.is_empty());
 
         let output_count = self.output_count();
         for input in self

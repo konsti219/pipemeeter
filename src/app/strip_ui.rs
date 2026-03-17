@@ -148,10 +148,7 @@ impl PipeMeeterApp {
                                 open_dialog = true;
                             }
                         } else {
-                            let req = strip
-                                .represented_node_requirements
-                                .first()
-                                .map(|req| req.pattern.as_str());
+                            let req = strip.requirements.first().map(|req| req.pattern.as_str());
 
                             if draw_strip_header(ui, &strip.name, "No match", req, true) {
                                 open_dialog = true;
@@ -286,10 +283,7 @@ impl PipeMeeterApp {
                                 open_dialog = true;
                             }
                         } else {
-                            let req = strip
-                                .represented_node_requirements
-                                .first()
-                                .map(|req| req.pattern.as_str());
+                            let req = strip.requirements.first().map(|req| req.pattern.as_str());
 
                             if draw_strip_header(ui, &strip.name, "No match", req, true) {
                                 open_dialog = true;

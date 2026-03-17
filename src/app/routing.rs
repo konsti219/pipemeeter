@@ -174,7 +174,7 @@ impl PipeMeeterApp {
 
     fn virtual_input_single_explicit_app_node(&self, index: usize) -> Option<u32> {
         let strip = self.config.virtual_inputs.get(index)?;
-        if strip.represented_node_requirements.is_empty() {
+        if strip.requirements.is_empty() {
             return None;
         }
 

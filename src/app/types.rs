@@ -32,8 +32,3 @@ pub(super) struct ResolvedNodeEntry {
     pub id: u32,
     pub display_text: String,
 }
-
-#[derive(Debug, Clone)]
-pub(super) struct ResolvedNodeInfo {
-    pub nodes: Vec<ResolvedNodeEntry>,
-}

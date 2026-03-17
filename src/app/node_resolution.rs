@@ -5,7 +5,7 @@ use glob::Pattern;
 use crate::config::{NodeMatchProperty, NodeMatchRequirement, StripConfig};
 use crate::pipewire_backend::{PwNode, PwNodeCategory, PwObject, PwStateExt};
 
-use super::{PipeMeeterApp, ResolvedNodeEntry, ResolvedNodeInfo, StripTarget};
+use super::{PipeMeeterApp, ResolvedNodeEntry, StripTarget};
 
 fn node_display_text(node: &PwNode) -> String {
     node.description
@@ -30,27 +30,13 @@ fn node_display_text(node: &PwNode) -> String {
 }
 
 fn node_match_value<'a>(node: &'a PwNode, match_property: NodeMatchProperty) -> Option<&'a str> {
-    match match_property {
-        NodeMatchProperty::Name => {
-            let value = node.name.trim();
-            if value.is_empty() { None } else { Some(value) }
-        }
-        NodeMatchProperty::Description => node
-            .description
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-        NodeMatchProperty::MediaName => node
-            .media_name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-        NodeMatchProperty::ProcessBinary => node
-            .process_binary
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-    }
+    let val = match match_property {
+        NodeMatchProperty::Name => Some(node.name.as_str()),
+        NodeMatchProperty::Description => node.description.as_deref(),
+        NodeMatchProperty::MediaName => node.media_name.as_deref(),
+        NodeMatchProperty::ProcessBinary => node.process_binary.as_deref(),
+    };
+    val.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn requirement_matches_node(node: &PwNode, requirement: &NodeMatchRequirement) -> bool {
@@ -70,80 +56,117 @@ fn requirement_matches_node(node: &PwNode, requirement: &NodeMatchRequirement) -
     }
 }
 
-fn strip_nodes_to_resolved(nodes: &[&PwNode]) -> ResolvedNodeInfo {
-    ResolvedNodeInfo {
-        nodes: nodes
-            .iter()
-            .map(|node| ResolvedNodeEntry {
-                id: node.id,
-                display_text: node_display_text(node),
-            })
-            .collect(),
-    }
+fn strip_nodes_to_resolved<'a>(
+    nodes: impl IntoIterator<Item = &'a &'a PwNode>,
+) -> Vec<ResolvedNodeEntry> {
+    nodes
+        .into_iter()
+        .map(|node| ResolvedNodeEntry {
+            id: node.id,
+            display_text: node_display_text(node),
+        })
+        .collect()
 }
 
-fn resolve_group(
-    resolved: &mut HashMap<StripTarget, ResolvedNodeInfo>,
+fn resolve_physical(
+    resolved: &mut HashMap<StripTarget, Vec<ResolvedNodeEntry>>,
     nodes: &[&PwNode],
     strips: &[StripConfig],
     category: PwNodeCategory,
-    enable_virtual_fallback: bool,
-    max_matches_per_strip: Option<usize>,
 ) {
     let mut assigned_nodes = HashSet::<u32>::new();
-    let mut ordered_strips = strips.iter().enumerate().collect::<Vec<_>>();
 
-    if enable_virtual_fallback {
-        // Apply explicit match requirements first, then let fallback strips take leftovers.
-        ordered_strips.sort_by_key(|(_, strip)| strip.represented_node_requirements.is_empty());
-    }
-
-    for (index, strip) in ordered_strips {
+    for (index, strip) in strips.iter().enumerate() {
         let target = StripTarget::new(index, category);
-        let requirements = strip.represented_node_requirements.as_slice();
-
-        let mut matched_nodes = if requirements.is_empty() {
-            if !enable_virtual_fallback {
-                continue;
-            }
-
-            nodes
-                .iter()
-                .copied()
-                .filter(|node| node.category == target.category)
-                .filter(|node| !assigned_nodes.contains(&node.id))
-                .collect::<Vec<_>>()
-        } else {
-            nodes
-                .iter()
-                .copied()
-                .filter(|node| !assigned_nodes.contains(&node.id))
-                .filter(|node| {
-                    requirements
-                        .iter()
-                        .all(|requirement| requirement_matches_node(node, requirement))
-                })
-                .collect::<Vec<_>>()
-        };
-
-        if let Some(max_matches) = max_matches_per_strip {
-            matched_nodes.truncate(max_matches);
-        }
-
-        if matched_nodes.is_empty() {
+        let requirements = strip.requirements.as_slice();
+        if requirements.is_empty() {
             continue;
         }
 
-        for node in &matched_nodes {
-            assigned_nodes.insert(node.id);
+        let mut candidates = nodes
+            .into_iter()
+            .copied()
+            .filter(|node| !assigned_nodes.contains(&node.id))
+            .filter(|node| {
+                requirements
+                    .iter()
+                    .all(|requirement| requirement_matches_node(node, requirement))
+            });
+
+        // First check if there is a node that matches the requirements and category
+        if let Some(res) = candidates.find(|node| node.category == category) {
+            assigned_nodes.insert(res.id);
+            resolved.insert(target, strip_nodes_to_resolved(&[res]));
+            continue;
         }
 
-        resolved.insert(target, strip_nodes_to_resolved(&matched_nodes));
+        if let Some(res) = candidates.next() {
+            assigned_nodes.insert(res.id);
+            resolved.insert(target, strip_nodes_to_resolved(&[res]));
+        }
     }
 }
 
-fn format_resolved_title(resolved: &ResolvedNodeInfo) -> (String, Option<String>) {
-    match resolved.nodes.as_slice() {
+fn resolve_virtual(
+    resolved: &mut HashMap<StripTarget, Vec<ResolvedNodeEntry>>,
+    nodes: &[&PwNode],
+    strips: &[StripConfig],
+    category: PwNodeCategory,
+) {
+    let mut assigned_nodes = HashSet::<u32>::new();
+
+    // First iterate over strips with requirements
+    for (index, strip) in strips
+        .iter()
+        .enumerate()
+        .filter(|(_, strip)| !strip.requirements.is_empty())
+    {
+        let target = StripTarget::new(index, category);
+
+        let nodes = nodes
+            .iter()
+            .copied()
+            .filter(|node| !assigned_nodes.contains(&node.id))
+            .filter(|node| {
+                strip
+                    .requirements
+                    .iter()
+                    .all(|requirement| requirement_matches_node(node, requirement))
+            })
+            .collect::<Vec<_>>();
+
+        for node in &nodes {
+            assigned_nodes.insert(node.id);
+        }
+
+        resolved.insert(target, strip_nodes_to_resolved(&nodes));
+    }
+
+    // Then iterate over strips without requirements and assign any remaining nodes
+    for (index, _strip) in strips
+        .iter()
+        .enumerate()
+        .filter(|(_, strip)| strip.requirements.is_empty())
+    {
+        let target = StripTarget::new(index, category);
+
+        let nodes = nodes
+            .iter()
+            .copied()
+            .filter(|node| !assigned_nodes.contains(&node.id))
+            .filter(|node| node.category == category)
+            .collect::<Vec<_>>();
+
+        for node in &nodes {
+            assigned_nodes.insert(node.id);
+        }
+
+        resolved.insert(target, strip_nodes_to_resolved(&nodes));
+    }
+}
+
+fn format_resolved_title(resolved: &Vec<ResolvedNodeEntry>) -> (String, Option<String>) {
+    match resolved.as_slice() {
         [] => (String::new(), None),
         [single] => (format!("#{} {}", single.id, single.display_text), None),
         [first, second] => (
@@ -166,7 +189,7 @@ impl PipeMeeterApp {
     pub(super) fn resolved_node_ids(&self, target: StripTarget) -> Vec<u32> {
         self.resolved_nodes
             .get(&target)
-            .map(|node| node.nodes.iter().map(|entry| entry.id).collect())
+            .map(|node| node.iter().map(|entry| entry.id).collect())
             .unwrap_or_default()
     }
 
@@ -179,7 +202,7 @@ impl PipeMeeterApp {
 
     pub(super) fn resolved_volume_slider_value(&self, target: StripTarget) -> Option<f32> {
         let resolved = self.resolved_nodes.get(&target)?;
-        let first_node = resolved.nodes.first()?;
+        let first_node = resolved.first()?;
         let objects = self.backend.objects.lock().unwrap();
         let PwObject::Node(node) = objects.get(&first_node.id)? else {
             return None;
@@ -196,40 +219,32 @@ impl PipeMeeterApp {
 
         let mut resolved_nodes = HashMap::new();
 
-        resolve_group(
+        resolve_physical(
             &mut resolved_nodes,
             &nodes,
             &self.config.physical_inputs,
             PwNodeCategory::InputDevice,
-            false,
-            Some(1),
         );
 
-        resolve_group(
+        resolve_virtual(
             &mut resolved_nodes,
             &nodes,
             &self.config.virtual_inputs,
             PwNodeCategory::PlaybackStream,
-            true,
-            None,
         );
 
-        resolve_group(
+        resolve_physical(
             &mut resolved_nodes,
             &nodes,
             &self.config.physical_outputs,
             PwNodeCategory::OutputDevice,
-            false,
-            Some(1),
         );
 
-        resolve_group(
+        resolve_virtual(
             &mut resolved_nodes,
             &nodes,
             &self.config.virtual_outputs,
             PwNodeCategory::RecordingStream,
-            true,
-            None,
         );
 
         self.resolved_nodes = resolved_nodes;
