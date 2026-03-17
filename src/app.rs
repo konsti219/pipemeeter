@@ -195,66 +195,36 @@ impl PipeMeeterApp {
         ) && target.index == 0
     }
 
-    fn global_output_index(&self, group: Group, index: usize) -> usize {
-        match group {
-            Group::Physical => index,
-            Group::Virtual => self.config.physical_outputs.len() + index,
-        }
-    }
-
     fn delete_target(&mut self, target: StripTarget) {
+        if target.index == 0
+            && matches!(
+                target.category,
+                PwNodeCategory::PlaybackStream | PwNodeCategory::RecordingStream
+            )
+        {
+            self.status = "cannot delete the default strip (index 0)".to_owned();
+            return;
+        }
+
         match target.category {
             PwNodeCategory::InputDevice => {
-                if target.index < self.config.physical_inputs.len() {
-                    self.config.physical_inputs.remove(target.index);
-                    self.persist_config();
-                }
+                self.config.physical_inputs.remove(target.index);
             }
             PwNodeCategory::PlaybackStream => {
-                if self.config.virtual_inputs.len() == 1 {
-                    self.status = "cannot delete the last virtual input (at least one is required)"
-                        .to_owned();
-                    return;
-                }
-                if target.index < self.config.virtual_inputs.len() {
-                    self.config.virtual_inputs.remove(target.index);
-                    self.persist_config();
-                }
+                self.config.virtual_inputs.remove(target.index);
             }
             PwNodeCategory::OutputDevice | PwNodeCategory::RecordingStream => {
                 let output_idx = match target.category {
                     PwNodeCategory::OutputDevice => {
-                        self.global_output_index(Group::Physical, target.index)
+                        self.config.physical_outputs.remove(target.index);
+                        target.index
                     }
                     PwNodeCategory::RecordingStream => {
-                        self.global_output_index(Group::Virtual, target.index)
+                        self.config.virtual_outputs.remove(target.index);
+                        self.config.physical_outputs.len() + target.index
                     }
                     _ => return,
                 };
-
-                match target.category {
-                    PwNodeCategory::OutputDevice => {
-                        if target.index < self.config.physical_outputs.len() {
-                            self.config.physical_outputs.remove(target.index);
-                        } else {
-                            return;
-                        }
-                    }
-                    PwNodeCategory::RecordingStream => {
-                        if self.config.virtual_outputs.len() == 1 {
-                            self.status =
-                                "cannot delete the last virtual output (at least one is required)"
-                                    .to_owned();
-                            return;
-                        }
-                        if target.index < self.config.virtual_outputs.len() {
-                            self.config.virtual_outputs.remove(target.index);
-                        } else {
-                            return;
-                        }
-                    }
-                    _ => return,
-                }
 
                 for input in self
                     .config
@@ -266,11 +236,11 @@ impl PipeMeeterApp {
                         input.routes_to_outputs.remove(output_idx);
                     }
                 }
-
-                self.persist_config();
             }
             PwNodeCategory::Other => {}
         }
+
+        self.persist_config();
     }
 
     fn apply_dialog_update(

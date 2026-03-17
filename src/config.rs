@@ -60,23 +60,22 @@ pub struct StripConfig {
 }
 
 impl StripConfig {
-    pub fn with_routes(name: String, output_count: usize) -> Self {
-        Self {
-            name,
-            requirements: Vec::new(),
-            volume: 1.0,
-            placeholder_meter: 0.0,
-            routes_to_outputs: vec![false; output_count],
-        }
-    }
     pub fn new(name: String) -> Self {
         Self {
             name,
-            requirements: Vec::new(),
+            requirements: vec![NodeMatchRequirement {
+                pattern: String::new(),
+                match_property: NodeMatchProperty::Name,
+            }],
             volume: 1.0,
             placeholder_meter: 0.0,
             routes_to_outputs: Vec::new(),
         }
+    }
+    pub fn with_routes(name: String, output_count: usize) -> Self {
+        let mut config = Self::new(name);
+        config.routes_to_outputs.resize(output_count, false);
+        config
     }
 }
 
@@ -106,10 +105,6 @@ impl AppConfig {
             strip.name = default_name.to_owned();
         }
 
-        strip
-            .requirements
-            .retain(|requirement| !requirement.pattern.trim().is_empty());
-
         strip.volume = strip.volume.clamp(0.0, 1.0);
         strip.placeholder_meter = strip.placeholder_meter.clamp(0.0, 1.0);
     }
@@ -136,12 +131,14 @@ impl AppConfig {
     pub fn normalize(&mut self) {
         if self.virtual_inputs.is_empty() {
             self.virtual_inputs
-                .push(StripConfig::with_routes("Defaut".to_owned(), 0));
+                .push(StripConfig::new("Defaut".to_owned()));
         }
+        self.virtual_inputs[0].requirements.clear();
         if self.virtual_outputs.is_empty() {
             self.virtual_outputs
                 .push(StripConfig::new("Defaut".to_owned()));
         }
+        self.virtual_outputs[0].requirements.clear();
 
         for input in self
             .physical_inputs
@@ -158,29 +155,6 @@ impl AppConfig {
         {
             Self::normalize_strip(output, "Output");
             output.routes_to_outputs.clear();
-        }
-
-        if !self
-            .virtual_inputs
-            .iter()
-            .any(|strip| strip.requirements.is_empty())
-        {
-            let output_count = self.output_count();
-            self.virtual_inputs.push(StripConfig::with_routes(
-                format!("Virtual In {}", self.virtual_inputs.len() + 1),
-                output_count,
-            ));
-        }
-
-        if !self
-            .virtual_outputs
-            .iter()
-            .any(|strip| strip.requirements.is_empty())
-        {
-            self.virtual_outputs.push(StripConfig::new(format!(
-                "Virtual Out {}",
-                self.virtual_outputs.len() + 1
-            )));
         }
 
         let output_count = self.output_count();
