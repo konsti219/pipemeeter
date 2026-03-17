@@ -217,6 +217,11 @@ impl PipeMeeterApp {
 
     pub(super) fn resolved_meter_level(&self, target: StripTarget) -> Option<[f32; 2]> {
         match target.category {
+            PwNodeCategory::InputDevice | PwNodeCategory::OutputDevice => self
+                .resolved_node_ids(target)
+                .first()
+                .copied()
+                .and_then(|id| self.backend.node_peak_meter(id)),
             PwNodeCategory::PlaybackStream => self
                 .virtual_input_combined_node_id(target.index)
                 .and_then(|id| self.backend.node_peak_meter(id)),

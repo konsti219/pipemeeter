@@ -76,17 +76,17 @@ fn infer_managed_client_id(state: &PwState) -> Option<u32> {
     })
 }
 
-fn desired_meter_tap_node_links(state: &PwState) -> Vec<DesiredNodeLink> {
-    state
+fn desired_meter_tap_node_links(
+    state: &PwState,
+    desired_node_links: &[DesiredNodeLink],
+    node_category: &HashMap<u32, PwNodeCategory>,
+) -> Vec<DesiredNodeLink> {
+    let tap_pairs = state
         .values()
         .filter_map(|obj| {
             let PwObject::Node(node) = obj else {
                 return None;
             };
-
-            if node.category != PwNodeCategory::Pipemeeter {
-                return None;
-            }
 
             let target_node_id = node
                 .name
@@ -97,12 +97,38 @@ fn desired_meter_tap_node_links(state: &PwState) -> Vec<DesiredNodeLink> {
                 return None;
             }
 
-            Some(DesiredNodeLink {
-                output_node: target_node_id,
-                input_node: node.id,
-            })
+            Some((target_node_id, node.id))
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    let mut desired = Vec::new();
+
+    for (target_node_id, tap_node_id) in tap_pairs {
+        match node_category
+            .get(&target_node_id)
+            .copied()
+            .unwrap_or(PwNodeCategory::Other)
+        {
+            PwNodeCategory::OutputDevice => {
+                for link in desired_node_links {
+                    if link.input_node == target_node_id {
+                        desired.push(DesiredNodeLink {
+                            output_node: link.output_node,
+                            input_node: tap_node_id,
+                        });
+                    }
+                }
+            }
+            _ => {
+                desired.push(DesiredNodeLink {
+                    output_node: target_node_id,
+                    input_node: tap_node_id,
+                });
+            }
+        }
+    }
+
+    desired
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -171,7 +197,11 @@ pub fn sync_routing_impl(
             audio_ports_by_node(&state, PortDirection::In, &monitor_output_nodes);
 
         let mut all_desired_node_links = desired_node_links.to_vec();
-        all_desired_node_links.extend(desired_meter_tap_node_links(&state));
+        all_desired_node_links.extend(desired_meter_tap_node_links(
+            &state,
+            desired_node_links,
+            &node_category,
+        ));
 
         let mut desired_port_links = HashSet::new();
         for link in &all_desired_node_links {

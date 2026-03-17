@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use log::error;
@@ -18,6 +18,47 @@ fn virtual_output_combined_name(index: usize) -> String {
 }
 
 impl PipeMeeterApp {
+    fn meter_target_node_names(&self) -> Vec<String> {
+        let id_to_name = {
+            let objects = self.backend.objects.lock().unwrap();
+            objects
+                .values()
+                .filter_map(|obj| {
+                    let PwObject::Node(node) = obj else {
+                        return None;
+                    };
+                    Some((node.id, node.name.clone()))
+                })
+                .collect::<HashMap<_, _>>()
+        };
+
+        let mut names = HashSet::new();
+
+        for name in self.managed_virtual_strip_names() {
+            names.insert(name);
+        }
+
+        for index in 0..self.config.physical_inputs.len() {
+            let target = StripTarget::new(index, PwNodeCategory::InputDevice);
+            for node_id in self.resolved_ids_for(target) {
+                if let Some(name) = id_to_name.get(&node_id) {
+                    names.insert(name.clone());
+                }
+            }
+        }
+
+        for index in 0..self.config.physical_outputs.len() {
+            let target = StripTarget::new(index, PwNodeCategory::OutputDevice);
+            for node_id in self.resolved_ids_for(target) {
+                if let Some(name) = id_to_name.get(&node_id) {
+                    names.insert(name.clone());
+                }
+            }
+        }
+
+        names.into_iter().collect()
+    }
+
     pub(super) fn virtual_input_combined_node_id(&self, index: usize) -> Option<u32> {
         self.managed_node_id(&virtual_input_combined_name(index))
     }
@@ -284,7 +325,7 @@ impl PipeMeeterApp {
 
         if let Err(err) = self
             .backend
-            .sync_virtual_meters(self.managed_virtual_strip_names())
+            .sync_virtual_meters(self.meter_target_node_names())
         {
             self.status = format!("failed to sync virtual meters: {err}");
             return;

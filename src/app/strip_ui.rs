@@ -136,7 +136,7 @@ impl PipeMeeterApp {
                         Group::Virtual => None,
                     };
                     let resolved_meter_level = match group {
-                        Group::Physical => None,
+                        Group::Physical => self.resolved_meter_level(target),
                         Group::Virtual => self.resolved_meter_level(target),
                     };
                     let resolved_node_ids = self.resolved_node_ids(target);
@@ -276,7 +276,7 @@ impl PipeMeeterApp {
                     let resolved_node_title = self.resolved_node_title(target);
                     let resolved_slider_value = self.resolved_volume_slider_value(target);
                     let resolved_meter_level = match group {
-                        Group::Physical => None,
+                        Group::Physical => self.resolved_meter_level(target),
                         Group::Virtual => self.resolved_meter_level(target),
                     };
                     let resolved_node_ids = self.resolved_node_ids(target);
