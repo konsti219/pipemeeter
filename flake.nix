@@ -33,7 +33,15 @@
       ];
 
       craneLib = crane.mkLib pkgs;
-      src = craneLib.cleanCargoSource ./.;
+      src = pkgs.lib.cleanSourceWith {
+        src = ./.;
+        filter = path: type:
+          (craneLib.filterCargoSources path type)
+          || (builtins.elem (builtins.baseNameOf path) [
+            "pipemeeter.png"
+            "pipemeeter.desktop"
+          ]);
+      };
 
       commonArgs = {
         inherit src;
@@ -72,6 +80,11 @@
           inherit cargoArtifacts;
           pname = "pipemeeter";
           version = "0.1.0";
+
+          postInstall = ''
+            install -Dm644 src/pipemeeter.png "$out/share/icons/hicolor/256x256/apps/pipemeeter.png"
+            install -Dm644 pipemeeter.desktop "$out/share/applications/pipemeeter.desktop"
+          '';
 
           postFixup = ''
             wrapProgram "$out/bin/pipemeeter" \

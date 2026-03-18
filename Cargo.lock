@@ -2595,6 +2595,7 @@ dependencies = [
  "eframe",
  "env_logger",
  "glob",
+ "image",
  "log",
  "pipewire",
  "serde",

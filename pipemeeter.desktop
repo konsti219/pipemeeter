@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Pipemeeter
+Comment=Simple PipeWire routing and volume control
+Exec=pipemeeter
+Icon=pipemeeter
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=pipewire;audio;mixer;
