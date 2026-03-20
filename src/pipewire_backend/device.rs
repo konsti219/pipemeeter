@@ -1,5 +1,16 @@
 use super::*;
 
+#[derive(Debug, Clone)]
+pub struct PwDevice {
+    pub factory_id: u32,
+    pub client_id: u32,
+    pub device_api: String,
+    pub description: String,
+    pub name: String,
+    pub media_class: String,
+    pub routes: Vec<PwDeviceRoute>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PwDeviceRoute {
     pub index: u32,
@@ -55,7 +66,6 @@ pub(super) fn handle_device_global(
     let device_api = props.get(&DEVICE_API).unwrap().to_owned();
     let description = props.get(&DEVICE_DESCRIPTION).unwrap().to_owned();
     let name = props.get(&DEVICE_NAME).unwrap().to_owned();
-    let nick = props.get(&DEVICE_NICK).unwrap().to_owned();
     let media_class = props.get(&MEDIA_CLASS).unwrap().to_owned();
 
     objects.insert(
@@ -66,7 +76,6 @@ pub(super) fn handle_device_global(
             device_api,
             description,
             name,
-            nick,
             media_class,
             routes: Vec::new(),
         }),

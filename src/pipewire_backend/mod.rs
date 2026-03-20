@@ -43,18 +43,6 @@ pub struct PwClient {
 }
 
 #[derive(Debug, Clone)]
-pub struct PwDevice {
-    pub factory_id: u32,
-    pub client_id: u32,
-    pub device_api: String,
-    pub description: String,
-    pub name: String,
-    pub nick: String,
-    pub media_class: String,
-    pub routes: Vec<PwDeviceRoute>,
-}
-
-#[derive(Debug, Clone)]
 pub struct PwFactory {
     pub name: String,
     pub type_name: String,
