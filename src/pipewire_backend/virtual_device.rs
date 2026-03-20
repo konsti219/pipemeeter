@@ -14,26 +14,21 @@ fn destroy_nodes_by_id(
     reason: &str,
 ) -> Result<()> {
     for id in ids {
-        info!("graph change: destroy node id={} reason='{}'", id, reason);
+        info!("graph change: destroy node id={id} reason='{reason}'",);
         registry
             .destroy_global(id)
             .into_result()
-            .with_context(|| format!("failed to destroy node id={} ({})", id, reason))?;
+            .with_context(|| format!("failed to destroy node id={id} ({reason})"))?;
     }
     Ok(())
 }
 
 pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result<()> {
-    let node_factory = "adapter";
-
-    info!(
-        "graph change: create virtual node name='{}' node_factory='{}'",
-        name, node_factory
-    );
+    info!("graph change: create virtual node name='{name}'",);
 
     let _node = core
         .create_object::<pw::node::Node>(
-            node_factory,
+            ADAPTER_FACTORY_NAME.get().unwrap(),
             &properties! {
                 "factory.name" => "support.null-audio-sink",
                 "node.name" => name,

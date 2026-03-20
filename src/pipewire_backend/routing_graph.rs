@@ -306,7 +306,7 @@ pub fn sync_routing_impl(
 
         let _link = core
             .create_object::<pw::link::Link>(
-                "link-factory",
+                LINK_FACTORY_NAME.get().unwrap(),
                 &properties! {
                     "client.id" => client_id_text.as_str(),
                     "link.output.node" => out_node_text.as_str(),

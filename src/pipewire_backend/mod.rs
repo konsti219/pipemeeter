@@ -15,6 +15,8 @@ use pw::types::ObjectType;
 
 mod device;
 use device::*;
+mod factory;
+use factory::*;
 mod meter;
 use meter::*;
 mod node;
@@ -40,13 +42,6 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 pub struct PwClient {
     pub module_id: u32,
     pub application_name: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct PwFactory {
-    pub name: String,
-    pub type_name: String,
-    pub module_id: u32,
 }
 
 #[derive(Debug, Clone)]

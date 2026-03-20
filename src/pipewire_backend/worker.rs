@@ -86,17 +86,7 @@ pub fn pipewire_worker(
                         );
                     }
                     ObjectType::Factory => {
-                        let name = props.get("factory.name").unwrap().to_owned();
-                        let type_name = props.get("factory.type.name").unwrap().to_owned();
-                        let module_id = props.get("module.id").unwrap().parse::<u32>().unwrap();
-                        objects.insert(
-                            global.id,
-                            PwObject::Factory(PwFactory {
-                                name,
-                                type_name,
-                                module_id,
-                            }),
-                        );
+                        handle_factory_global(global, props, &mut objects);
                     }
                     ObjectType::Metadata => {
                         let name = props.get("metadata.name").unwrap().to_owned();
