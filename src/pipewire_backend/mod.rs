@@ -13,23 +13,23 @@ use pw::properties::properties;
 use pw::spa::param::ParamType;
 use pw::types::ObjectType;
 
+mod device;
+use device::*;
+mod meter;
+use meter::*;
 mod node;
 pub use node::*;
+mod pod;
+use pod::*;
+mod port;
+pub use port::*;
 mod routing_graph;
 use routing_graph::*;
 mod virtual_device;
 pub use virtual_device::VIRTUAL_DEVICE_PREFIX;
 use virtual_device::*;
-mod device;
-use device::*;
-mod pod;
-use pod::*;
-mod port;
-pub use port::*;
 mod worker;
 use worker::*;
-mod meter;
-use meter::*;
 
 type PwProxies = HashMap<u32, PwProxy>;
 pub type PwState = HashMap<u32, PwObject>;
@@ -150,14 +150,6 @@ pub struct PipewireBackend {
 
     command_tx: pw::channel::Sender<BackendCommand>,
     handle: Option<JoinHandle<Result<()>>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct NodeSummary {
-    pub id: u32,
-    pub name: String,
-    pub description: Option<String>,
-    pub category: PwNodeCategory,
 }
 
 impl PipewireBackend {

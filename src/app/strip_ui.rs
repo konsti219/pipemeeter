@@ -194,7 +194,8 @@ impl PipeMeeterApp {
                                     if let Some(route) =
                                         strip.routes_to_outputs.get_mut(route_index)
                                     {
-                                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                                        ui.style_mut().wrap_mode =
+                                            Some(egui::TextWrapMode::Truncate);
                                         if ui.checkbox(route, output_label).changed() {
                                             *dirty = true;
                                         }
