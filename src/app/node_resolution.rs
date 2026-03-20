@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use glob::Pattern;
 
 use crate::config::{NodeMatchProperty, NodeMatchRequirement, StripConfig};
-use crate::pipewire_backend::{PwNode, PwNodeCategory, PwObject, PwStateExt};
+use crate::pipewire_backend::{PwNode, PwNodeCategory, PwStateExt};
 
 use super::{PipeMeeterApp, ResolvedNodeEntry, StripTarget};
 
@@ -186,15 +186,6 @@ fn format_resolved_title(resolved: &Vec<ResolvedNodeEntry>) -> (String, Option<S
 }
 
 impl PipeMeeterApp {
-    fn node_volume_slider_value(&self, node_id: u32) -> Option<f32> {
-        let objects = self.backend.objects.lock().unwrap();
-        let PwObject::Node(node) = objects.get(&node_id)? else {
-            return None;
-        };
-
-        Some(super::volume::pipewire_stereo_to_human_slider(node.volume))
-    }
-
     pub(super) fn resolved_node_ids(&self, target: StripTarget) -> Vec<u32> {
         self.resolved_nodes
             .get(&target)
@@ -207,12 +198,6 @@ impl PipeMeeterApp {
         target: StripTarget,
     ) -> Option<(String, Option<String>)> {
         self.resolved_nodes.get(&target).map(format_resolved_title)
-    }
-
-    pub(super) fn resolved_volume_slider_value(&self, target: StripTarget) -> Option<f32> {
-        let resolved = self.resolved_nodes.get(&target)?;
-        let first_node = resolved.first()?;
-        self.node_volume_slider_value(first_node.id)
     }
 
     pub(super) fn resolved_meter_level(&self, target: StripTarget) -> Option<[f32; 2]> {

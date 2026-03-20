@@ -45,7 +45,6 @@ pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result
                 "monitor.channel-volumes" => "true",
                 "object.linger" => "true",
                 "pipemeeter.managed" => "true",
-                "pipemeeter.kind" => "virtual_device",
             },
         )
         .context("failed to create virtual device")?;

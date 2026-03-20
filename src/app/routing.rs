@@ -221,34 +221,19 @@ impl PipeMeeterApp {
         desired.into_iter().collect()
     }
 
-    fn virtual_input_single_explicit_app_node(&self, index: usize) -> Option<u32> {
-        let strip = self.config.virtual_inputs.get(index)?;
-        if strip.requirements.is_empty() {
-            return None;
-        }
-
-        let target = StripTarget::new(index, PwNodeCategory::PlaybackStream);
-        let ids = self.resolved_ids_for(target);
-        if ids.len() == 1 { Some(ids[0]) } else { None }
-    }
-
     fn sync_virtual_input_combined_volumes(&mut self) {
         for index in 0..self.config.virtual_inputs.len() {
             let Some(combined_node_id) = self.virtual_input_combined_node_id(index) else {
                 continue;
             };
 
-            let desired_linear = if self.virtual_input_single_explicit_app_node(index).is_some() {
-                1.0
-            } else {
-                let slider = self
-                    .config
-                    .virtual_inputs
-                    .get(index)
-                    .map(|strip| strip.volume)
-                    .unwrap_or(1.0);
-                super::volume::human_slider_to_pipewire_linear(slider)
-            };
+            let slider = self
+                .config
+                .virtual_inputs
+                .get(index)
+                .map(|strip| strip.volume)
+                .unwrap_or(1.0);
+            let desired_linear = super::volume::human_slider_to_pipewire_linear(slider);
 
             let should_update = {
                 let objects = self.backend.objects.lock().unwrap();
@@ -276,26 +261,6 @@ impl PipeMeeterApp {
     }
 
     pub(super) fn apply_virtual_input_slider_volume(&mut self, index: usize, slider: f32) {
-        if let Some(app_node_id) = self.virtual_input_single_explicit_app_node(index) {
-            if let Some(combined_node_id) = self.virtual_input_combined_node_id(index) {
-                if let Err(err) = self.backend.set_node_volume(combined_node_id, 1.0) {
-                    self.status = format!(
-                        "failed to reset virtual input combined volume for node #{}: {err}",
-                        combined_node_id
-                    );
-                }
-            }
-
-            let linear = super::volume::human_slider_to_pipewire_linear(slider);
-            if let Err(err) = self.backend.set_node_volume(app_node_id, linear) {
-                self.status = format!(
-                    "failed to set input volume for node #{}: {err}",
-                    app_node_id
-                );
-            }
-            return;
-        }
-
         let Some(combined_node_id) = self.virtual_input_combined_node_id(index) else {
             return;
         };

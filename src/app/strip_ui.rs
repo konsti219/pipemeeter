@@ -131,14 +131,7 @@ impl PipeMeeterApp {
                 for index in 0..len {
                     let target = StripTarget::new(index, category);
                     let resolved_node_title = self.resolved_node_title(target);
-                    let resolved_slider_value = match group {
-                        Group::Physical => self.resolved_volume_slider_value(target),
-                        Group::Virtual => None,
-                    };
-                    let resolved_meter_level = match group {
-                        Group::Physical => self.resolved_meter_level(target),
-                        Group::Virtual => self.resolved_meter_level(target),
-                    };
+                    let resolved_meter_level = self.resolved_meter_level(target);
                     let resolved_node_ids = self.resolved_node_ids(target);
                     let mut open_dialog = false;
                     let mut changed_volume = None;
@@ -173,8 +166,7 @@ impl PipeMeeterApp {
                                     .unwrap_or([strip.placeholder_meter, strip.placeholder_meter]),
                                 egui::vec2(32.0, 250.0),
                             );
-                            let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
-                            let slider = egui::Slider::new(&mut slider_value, 0.0..=1.0)
+                            let slider = egui::Slider::new(&mut strip.volume, 0.0..=1.0)
                                 .step_by(0.05)
                                 .vertical()
                                 .show_value(false);
@@ -187,10 +179,9 @@ impl PipeMeeterApp {
                                     (response.changed(), response.rect)
                                 })
                                 .inner;
-                            draw_slider_knob_percentage(ui, slider_rect, slider_value);
+                            draw_slider_knob_percentage(ui, slider_rect, strip.volume);
                             if slider_changed {
-                                strip.volume = slider_value;
-                                changed_volume = Some(slider_value);
+                                changed_volume = Some(strip.volume);
                                 *dirty = true;
                             }
 
@@ -274,11 +265,7 @@ impl PipeMeeterApp {
                 for index in 0..len {
                     let target = StripTarget::new(index, category);
                     let resolved_node_title = self.resolved_node_title(target);
-                    let resolved_slider_value = self.resolved_volume_slider_value(target);
-                    let resolved_meter_level = match group {
-                        Group::Physical => self.resolved_meter_level(target),
-                        Group::Virtual => self.resolved_meter_level(target),
-                    };
+                    let resolved_meter_level = self.resolved_meter_level(target);
                     let resolved_node_ids = self.resolved_node_ids(target);
                     let mut open_dialog = false;
                     let mut changed_volume = None;
@@ -313,8 +300,7 @@ impl PipeMeeterApp {
                                     .unwrap_or([strip.placeholder_meter, strip.placeholder_meter]),
                                 egui::vec2(32.0, 250.0),
                             );
-                            let mut slider_value = resolved_slider_value.unwrap_or(strip.volume);
-                            let slider = egui::Slider::new(&mut slider_value, 0.0..=1.0)
+                            let slider = egui::Slider::new(&mut strip.volume, 0.0..=1.0)
                                 .step_by(0.05)
                                 .vertical()
                                 .show_value(false);
@@ -327,10 +313,9 @@ impl PipeMeeterApp {
                                     (response.changed(), response.rect)
                                 })
                                 .inner;
-                            draw_slider_knob_percentage(ui, slider_rect, slider_value);
+                            draw_slider_knob_percentage(ui, slider_rect, strip.volume);
                             if slider_changed {
-                                strip.volume = slider_value;
-                                changed_volume = Some(slider_value);
+                                changed_volume = Some(strip.volume);
                                 *dirty = true;
                             }
                         });
