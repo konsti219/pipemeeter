@@ -202,11 +202,22 @@ impl PipeMeeterApp {
 
     pub(super) fn resolved_meter_level(&self, target: StripTarget) -> Option<[f32; 2]> {
         match target.category {
-            PwNodeCategory::InputDevice | PwNodeCategory::OutputDevice => self
+            PwNodeCategory::InputDevice => self
                 .resolved_node_ids(target)
                 .first()
                 .copied()
                 .and_then(|id| self.backend.node_peak_meter(id)),
+            PwNodeCategory::OutputDevice => {
+                let slider = self
+                    .strip_ref(target)
+                    .map(|strip| strip.volume)
+                    .unwrap_or(1.0);
+                self.resolved_node_ids(target)
+                    .first()
+                    .copied()
+                    .and_then(|id| self.backend.node_peak_meter(id))
+                    .map(|levels| [levels[0] * slider, levels[1] * slider])
+            }
             PwNodeCategory::PlaybackStream => self
                 .virtual_input_combined_node_id(target.index)
                 .and_then(|id| self.backend.node_peak_meter(id)),
