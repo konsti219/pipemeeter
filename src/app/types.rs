@@ -24,6 +24,7 @@ pub(super) struct EditDialogState {
     pub target: StripTarget,
     pub draft_strip_name: String,
     pub draft_represented_node_requirements: Vec<NodeMatchRequirement>,
+    pub draft_match_only_category: bool,
     pub selected_requirement_index: usize,
 }
 

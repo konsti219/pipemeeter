@@ -183,6 +183,7 @@ impl PipeMeeterApp {
                 target,
                 draft_strip_name: strip.name.clone(),
                 draft_represented_node_requirements: strip.requirements.clone(),
+                draft_match_only_category: strip.match_only_category,
                 selected_requirement_index: 0,
             });
         }
@@ -248,6 +249,7 @@ impl PipeMeeterApp {
         target: StripTarget,
         strip_name: String,
         represented_node_requirements: Vec<NodeMatchRequirement>,
+        match_only_category: bool,
     ) {
         let trimmed_strip_name = strip_name.trim();
         if trimmed_strip_name.is_empty() {
@@ -281,6 +283,7 @@ impl PipeMeeterApp {
         if let Some(strip) = self.strip_mut(target) {
             strip.name = trimmed_strip_name.to_owned();
             strip.requirements = applied_requirements;
+            strip.match_only_category = match_only_category;
         }
 
         self.persist_config();

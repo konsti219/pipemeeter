@@ -93,6 +93,14 @@ fn resolve_physical(
                     .all(|requirement| requirement_matches_node(node, requirement))
             });
 
+        if strip.match_only_category {
+            if let Some(res) = candidates.find(|node| node.category == category) {
+                assigned_nodes.insert(res.id);
+                resolved.insert(target, strip_nodes_to_resolved(&[res]));
+            }
+            continue;
+        }
+
         // First check if there is a node that matches the requirements and category
         if let Some(res) = candidates.find(|node| node.category == category) {
             assigned_nodes.insert(res.id);
@@ -133,6 +141,7 @@ fn resolve_virtual(
                     .iter()
                     .all(|requirement| requirement_matches_node(node, requirement))
             })
+            .filter(|node| !strip.match_only_category || node.category == category)
             .collect::<Vec<_>>();
 
         for node in &nodes {

@@ -7,6 +7,10 @@ fn default_volume() -> f32 {
     1.0
 }
 
+fn default_category_only_match() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeMatchProperty {
@@ -51,6 +55,8 @@ pub struct StripConfig {
     pub name: String,
     #[serde(default)]
     pub requirements: Vec<NodeMatchRequirement>,
+    #[serde(default = "default_category_only_match")]
+    pub match_only_category: bool,
     #[serde(default = "default_volume")]
     pub volume: f32,
     #[serde(default)]
@@ -67,6 +73,7 @@ impl StripConfig {
                 pattern: String::new(),
                 match_property: NodeMatchProperty::Name,
             }],
+            match_only_category: true,
             volume: 1.0,
             placeholder_meter: 0.0,
             routes_to_outputs: Vec::new(),

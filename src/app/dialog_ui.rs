@@ -99,6 +99,7 @@ impl PipeMeeterApp {
         let mut action = None;
         let mut new_strip_name = String::new();
         let mut new_represented_node_requirements = Vec::new();
+        let mut new_match_only_category = dialog.draft_match_only_category;
         let fallback_only = self.is_default_strip(dialog.target);
 
         let filter = dialog.target.category;
@@ -211,6 +212,11 @@ impl PipeMeeterApp {
                             .len()
                             .saturating_sub(1);
                     }
+
+                    ui.checkbox(
+                        &mut dialog.draft_match_only_category,
+                        "Only match nodes from this strip category",
+                    );
                     ui.add_space(8.0);
 
                     let selected_requirement = dialog
@@ -251,6 +257,7 @@ impl PipeMeeterApp {
                         new_strip_name = dialog.draft_strip_name.clone();
                         new_represented_node_requirements =
                             dialog.draft_represented_node_requirements.clone();
+                        new_match_only_category = dialog.draft_match_only_category;
                         action = Some(DialogAction::Save);
                     }
                     if ui.button("Delete").clicked() {
@@ -272,6 +279,7 @@ impl PipeMeeterApp {
                     dialog.target,
                     new_strip_name,
                     new_represented_node_requirements,
+                    new_match_only_category,
                 );
                 self.edit_dialog = None;
             }
