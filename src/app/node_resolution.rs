@@ -70,12 +70,11 @@ fn strip_nodes_to_resolved<'a>(
 
 fn resolve_physical(
     resolved: &mut HashMap<StripTarget, Vec<ResolvedNodeEntry>>,
+    assigned_nodes: &mut HashSet<u32>,
     nodes: &[&PwNode],
     strips: &[StripConfig],
     category: PwNodeCategory,
 ) {
-    let mut assigned_nodes = HashSet::<u32>::new();
-
     for (index, strip) in strips.iter().enumerate() {
         let target = StripTarget::new(index, category);
         let requirements = strip.requirements.as_slice();
@@ -93,18 +92,14 @@ fn resolve_physical(
                     .all(|requirement| requirement_matches_node(node, requirement))
             });
 
-        if strip.match_only_category {
-            if let Some(res) = candidates.find(|node| node.category == category) {
-                assigned_nodes.insert(res.id);
-                resolved.insert(target, strip_nodes_to_resolved(&[res]));
-            }
-            continue;
-        }
-
         // First check if there is a node that matches the requirements and category
         if let Some(res) = candidates.find(|node| node.category == category) {
             assigned_nodes.insert(res.id);
             resolved.insert(target, strip_nodes_to_resolved(&[res]));
+            continue;
+        }
+
+        if strip.match_only_category {
             continue;
         }
 
@@ -117,12 +112,11 @@ fn resolve_physical(
 
 fn resolve_virtual(
     resolved: &mut HashMap<StripTarget, Vec<ResolvedNodeEntry>>,
+    assigned_nodes: &mut HashSet<u32>,
     nodes: &[&PwNode],
     strips: &[StripConfig],
     category: PwNodeCategory,
 ) {
-    let mut assigned_nodes = HashSet::<u32>::new();
-
     // First iterate over strips with requirements
     for (index, strip) in strips
         .iter()
@@ -247,23 +241,20 @@ impl PipeMeeterApp {
         nodes.sort_by_key(|node| node.id);
 
         let mut resolved_nodes = HashMap::new();
+        let mut assigned_node_ids = HashSet::new();
 
+        // This order is intentional
         resolve_physical(
             &mut resolved_nodes,
+            &mut assigned_node_ids,
             &nodes,
             &self.config.physical_inputs,
             PwNodeCategory::InputDevice,
         );
 
-        resolve_virtual(
-            &mut resolved_nodes,
-            &nodes,
-            &self.config.virtual_inputs,
-            PwNodeCategory::PlaybackStream,
-        );
-
         resolve_physical(
             &mut resolved_nodes,
+            &mut assigned_node_ids,
             &nodes,
             &self.config.physical_outputs,
             PwNodeCategory::OutputDevice,
@@ -271,9 +262,18 @@ impl PipeMeeterApp {
 
         resolve_virtual(
             &mut resolved_nodes,
+            &mut assigned_node_ids,
             &nodes,
             &self.config.virtual_outputs,
             PwNodeCategory::RecordingStream,
+        );
+
+        resolve_virtual(
+            &mut resolved_nodes,
+            &mut assigned_node_ids,
+            &nodes,
+            &self.config.virtual_inputs,
+            PwNodeCategory::PlaybackStream,
         );
 
         self.resolved_nodes = resolved_nodes;
