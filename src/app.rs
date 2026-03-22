@@ -1,16 +1,16 @@
-mod dialog_ui;
-mod node_resolution;
-mod routing;
-mod strip_ui;
-mod types;
-mod volume;
-
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
 use eframe::egui;
 use log::error;
+
+mod dialog_ui;
+mod node_resolution;
+mod routing;
+mod strip_ui;
+mod types;
+mod volume;
 
 use crate::config::{
     AppConfig, NodeMatchRequirement, StripConfig, config_path, load_config, save_config,
@@ -61,7 +61,7 @@ impl PipeMeeterApp {
             config,
             backend,
             resolved_nodes: HashMap::new(),
-            status: "UI-only setup mode (backend disabled)".to_owned(),
+            status: "Ready".to_owned(),
             edit_dialog: None,
             last_viewport_size: None,
             last_routing_sync: None,
@@ -78,7 +78,7 @@ impl PipeMeeterApp {
         let width = (input_strips * 140.0 + output_strips * 90.0)
             + GAP * (input_strips + output_strips - 1.0);
 
-        egui::vec2(width + 16.0, 450.0)
+        egui::vec2(width + 16.0, 390.0)
         // egui::vec2(2500.0, 1200.0)
     }
 
@@ -338,6 +338,7 @@ impl eframe::App for PipeMeeterApp {
                 });
             });
 
+            ui.add_space(5.0);
             ui.separator();
 
             let mut node_lines = {
