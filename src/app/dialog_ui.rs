@@ -260,9 +260,13 @@ impl PipeMeeterApp {
                         new_match_only_category = dialog.draft_match_only_category;
                         action = Some(DialogAction::Save);
                     }
-                    if ui.button("Delete").clicked() {
-                        action = Some(DialogAction::Delete);
+
+                    if !fallback_only {
+                        if ui.button("Delete").clicked() {
+                            action = Some(DialogAction::Delete);
+                        }
                     }
+
                     if ui.button("Cancel").clicked() {
                         action = Some(DialogAction::Cancel);
                     }
