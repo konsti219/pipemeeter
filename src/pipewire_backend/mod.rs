@@ -13,6 +13,8 @@ use pw::properties::properties;
 use pw::spa::param::ParamType;
 use pw::types::ObjectType;
 
+use crate::config::AppConfig;
+
 mod device;
 use device::*;
 mod factory;
@@ -51,7 +53,6 @@ pub struct PwLink {
     pub input_port: u32,
     pub output_node: u32,
     pub output_port: u32,
-    pub managed_by_pipemeeter: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -96,6 +97,16 @@ enum PwProxy {
     Port(pw::port::Port, pw::port::PortListener),
 }
 
+impl std::fmt::Debug for PwProxy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Device(_, _) => f.debug_struct("PwProxy::Device").finish(),
+            Self::Node(_, _) => f.debug_struct("PwProxy::Node").finish(),
+            Self::Port(_, _) => f.debug_struct("PwProxy::Port").finish(),
+        }
+    }
+}
+
 fn create_mainloop() -> Result<(pw::main_loop::MainLoopRc, pw::core::CoreRc)> {
     let mainloop =
         pw::main_loop::MainLoopRc::new(None).context("failed to create PipeWire loop")?;
@@ -108,21 +119,13 @@ fn create_mainloop() -> Result<(pw::main_loop::MainLoopRc, pw::core::CoreRc)> {
 }
 
 enum BackendCommand {
-    SyncManagedVirtualDevices {
-        names: Vec<String>,
+    SetRoutingConfig {
+        config: AppConfig,
         reply: mpsc::Sender<Result<()>>,
     },
     SetNodeVolume {
         node_id: u32,
         volume: f32,
-        reply: mpsc::Sender<Result<()>>,
-    },
-    SyncRouting {
-        links: Vec<DesiredNodeLink>,
-        reply: mpsc::Sender<Result<()>>,
-    },
-    SyncVirtualMeters {
-        names: Vec<String>,
         reply: mpsc::Sender<Result<()>>,
     },
     Shutdown {
@@ -133,49 +136,6 @@ enum BackendCommand {
 fn send_reply(reply: mpsc::Sender<Result<()>>, res: Result<()>) {
     if reply.send(res).is_err() {
         warn!("frontend reply channel dropped before worker could reply");
-    }
-}
-
-#[derive(Clone)]
-pub struct PipewireBackendClient {
-    pub objects: Arc<Mutex<PwState>>,
-    command_tx: pw::channel::Sender<BackendCommand>,
-}
-
-impl PipewireBackendClient {
-    fn request<F>(&self, build: F) -> Result<()>
-    where
-        F: FnOnce(mpsc::Sender<Result<()>>) -> BackendCommand,
-    {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        self.command_tx
-            .send(build(reply_tx))
-            .map_err(|_| anyhow::anyhow!("failed to send command to PipeWire worker"))?;
-
-        match reply_rx.recv_timeout(COMMAND_TIMEOUT) {
-            Ok(res) => res,
-            Err(err) => bail!("timed out waiting for PipeWire command completion: {err}"),
-        }
-    }
-
-    pub fn sync_managed_virtual_devices(&self, names: Vec<String>) -> Result<()> {
-        self.request(|reply| BackendCommand::SyncManagedVirtualDevices { names, reply })
-    }
-
-    pub fn set_node_volume(&self, node_id: u32, volume: f32) -> Result<()> {
-        self.request(|reply| BackendCommand::SetNodeVolume {
-            node_id,
-            volume,
-            reply,
-        })
-    }
-
-    pub fn sync_routing(&self, links: Vec<DesiredNodeLink>) -> Result<()> {
-        self.request(|reply| BackendCommand::SyncRouting { links, reply })
-    }
-
-    pub fn sync_virtual_meters(&self, names: Vec<String>) -> Result<()> {
-        self.request(|reply| BackendCommand::SyncVirtualMeters { names, reply })
     }
 }
 
@@ -234,11 +194,8 @@ impl PipewireBackend {
         })
     }
 
-    pub fn client(&self) -> PipewireBackendClient {
-        PipewireBackendClient {
-            objects: self.objects.clone(),
-            command_tx: self.command_tx.clone(),
-        }
+    pub fn set_routing_config(&self, config: AppConfig) -> Result<()> {
+        self.request(|reply| BackendCommand::SetRoutingConfig { config, reply })
     }
 
     pub fn node_peak_meter(&self, node_id: u32) -> Option<[f32; 2]> {

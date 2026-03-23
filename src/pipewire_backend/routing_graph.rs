@@ -139,35 +139,6 @@ struct DesiredPortLink {
     input_port: u32,
 }
 
-pub fn remove_managed_links_impl(
-    registry: &pw::registry::RegistryRc,
-    objects: &Arc<Mutex<PwState>>,
-) -> Result<()> {
-    let candidate_ids = {
-        let state = objects.lock().unwrap();
-        state
-            .iter()
-            .filter_map(|(id, obj)| match obj {
-                PwObject::Link(link) if link.managed_by_pipemeeter => Some(*id),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    };
-
-    for id in candidate_ids {
-        info!(
-            "graph change: destroy link id={} reason='shutdown cleanup'",
-            id
-        );
-        registry
-            .destroy_global(id)
-            .into_result()
-            .with_context(|| format!("failed to destroy managed link id={}", id))?;
-    }
-
-    Ok(())
-}
-
 pub fn sync_routing_impl(
     core: &pw::core::CoreRc,
     registry: &pw::registry::RegistryRc,

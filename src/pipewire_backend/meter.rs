@@ -21,10 +21,17 @@ struct MeterTap {
     _listener: pw::stream::StreamListener<MeterUserData>,
 }
 
+impl std::fmt::Debug for MeterTap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MeterTap").finish()
+    }
+}
+
 fn linear_peak_to_meter_level(peak: f32) -> f32 {
     peak.max(0.0).cbrt()
 }
 
+#[derive(Debug)]
 pub struct MeterManager {
     meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>,
     taps: HashMap<u32, MeterTap>,

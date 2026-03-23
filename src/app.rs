@@ -1,10 +1,5 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, Ordering},
-};
-use std::thread::JoinHandle;
 
 use eframe::egui;
 use log::error;
@@ -33,9 +28,6 @@ pub struct PipeMeeterApp {
     status: String,
     edit_dialog: Option<EditDialogState>,
     last_viewport_size: Option<egui::Vec2>,
-    shared_config: Arc<Mutex<AppConfig>>,
-    routing_worker_stop: Arc<AtomicBool>,
-    routing_worker_thread: Option<JoinHandle<()>>,
 }
 
 impl PipeMeeterApp {
@@ -60,14 +52,8 @@ impl PipeMeeterApp {
         };
         config.normalize();
 
-        let shared_config = Arc::new(Mutex::new(config.clone()));
         let backend = PipewireBackend::new().unwrap();
-        let routing_worker_stop = Arc::new(AtomicBool::new(false));
-        let routing_worker_thread = Some(routing::spawn_routing_worker(
-            backend.client(),
-            shared_config.clone(),
-            routing_worker_stop.clone(),
-        ));
+        backend.set_routing_config(config.clone()).unwrap();
 
         Self {
             config_path,
@@ -77,9 +63,6 @@ impl PipeMeeterApp {
             status: "Ready".to_owned(),
             edit_dialog: None,
             last_viewport_size: None,
-            shared_config,
-            routing_worker_stop,
-            routing_worker_thread,
         }
     }
 
@@ -112,7 +95,9 @@ impl PipeMeeterApp {
 
     fn persist_config(&mut self) {
         self.config.normalize();
-        *self.shared_config.lock().unwrap() = self.config.clone();
+        self.backend
+            .set_routing_config(self.config.clone())
+            .unwrap();
         match save_config(&self.config_path, &self.config) {
             Ok(()) => {
                 self.status = format!("saved setup to {}", self.config_path.display());
@@ -303,15 +288,6 @@ impl PipeMeeterApp {
         }
 
         self.persist_config();
-    }
-}
-
-impl Drop for PipeMeeterApp {
-    fn drop(&mut self) {
-        self.routing_worker_stop.store(true, Ordering::Relaxed);
-        if let Some(handle) = self.routing_worker_thread.take() {
-            handle.join().unwrap();
-        }
     }
 }
 

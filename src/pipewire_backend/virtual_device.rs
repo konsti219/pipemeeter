@@ -111,12 +111,7 @@ pub fn remove_managed_virtual_devices_impl(
         state
             .iter()
             .filter_map(|(id, obj)| match obj {
-                PwObject::Node(node)
-                    if node.category == PwNodeCategory::Pipemeeter
-                        && is_virtual_device_name(&node.name) =>
-                {
-                    Some(*id)
-                }
+                PwObject::Node(node) if node.category == PwNodeCategory::Pipemeeter => Some(*id),
                 _ => None,
             })
             .collect::<Vec<_>>()
