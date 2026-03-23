@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use glob::Pattern;
 
-use crate::config::{NodeMatchProperty, NodeMatchRequirement, StripConfig};
-use crate::pipewire_backend::{PwNode, PwNodeCategory, PwStateExt};
+use crate::config::{AppConfig, NodeMatchProperty, NodeMatchRequirement, StripConfig};
+use crate::pipewire_backend::{PwNode, PwNodeCategory, PwState, PwStateExt};
 
 use super::{PipeMeeterApp, ResolvedNodeEntry, StripTarget};
 
@@ -188,6 +188,55 @@ fn format_resolved_title(resolved: &Vec<ResolvedNodeEntry>) -> (String, Option<S
     }
 }
 
+pub(super) fn resolve_nodes_for_config(
+    config: &AppConfig,
+    objects: &PwState,
+) -> HashMap<StripTarget, Vec<ResolvedNodeEntry>> {
+    let mut nodes = objects
+        .nodes()
+        .filter(|node| node.category != PwNodeCategory::Pipemeeter)
+        .collect::<Vec<_>>();
+    nodes.sort_by_key(|node| node.id);
+
+    let mut resolved_nodes = HashMap::new();
+    let mut assigned_node_ids = HashSet::new();
+
+    // This order is intentional
+    resolve_physical(
+        &mut resolved_nodes,
+        &mut assigned_node_ids,
+        &nodes,
+        &config.physical_inputs,
+        PwNodeCategory::InputDevice,
+    );
+
+    resolve_physical(
+        &mut resolved_nodes,
+        &mut assigned_node_ids,
+        &nodes,
+        &config.physical_outputs,
+        PwNodeCategory::OutputDevice,
+    );
+
+    resolve_virtual(
+        &mut resolved_nodes,
+        &mut assigned_node_ids,
+        &nodes,
+        &config.virtual_outputs,
+        PwNodeCategory::RecordingStream,
+    );
+
+    resolve_virtual(
+        &mut resolved_nodes,
+        &mut assigned_node_ids,
+        &nodes,
+        &config.virtual_inputs,
+        PwNodeCategory::PlaybackStream,
+    );
+
+    resolved_nodes
+}
+
 impl PipeMeeterApp {
     pub(super) fn resolved_node_ids(&self, target: StripTarget) -> Vec<u32> {
         self.resolved_nodes
@@ -233,49 +282,6 @@ impl PipeMeeterApp {
 
     pub(super) fn refresh_resolved_nodes(&mut self) {
         let objects = self.backend.objects.lock().unwrap();
-
-        let mut nodes = objects
-            .nodes()
-            .filter(|node| node.category != PwNodeCategory::Pipemeeter)
-            .collect::<Vec<_>>();
-        nodes.sort_by_key(|node| node.id);
-
-        let mut resolved_nodes = HashMap::new();
-        let mut assigned_node_ids = HashSet::new();
-
-        // This order is intentional
-        resolve_physical(
-            &mut resolved_nodes,
-            &mut assigned_node_ids,
-            &nodes,
-            &self.config.physical_inputs,
-            PwNodeCategory::InputDevice,
-        );
-
-        resolve_physical(
-            &mut resolved_nodes,
-            &mut assigned_node_ids,
-            &nodes,
-            &self.config.physical_outputs,
-            PwNodeCategory::OutputDevice,
-        );
-
-        resolve_virtual(
-            &mut resolved_nodes,
-            &mut assigned_node_ids,
-            &nodes,
-            &self.config.virtual_outputs,
-            PwNodeCategory::RecordingStream,
-        );
-
-        resolve_virtual(
-            &mut resolved_nodes,
-            &mut assigned_node_ids,
-            &nodes,
-            &self.config.virtual_inputs,
-            PwNodeCategory::PlaybackStream,
-        );
-
-        self.resolved_nodes = resolved_nodes;
+        self.resolved_nodes = resolve_nodes_for_config(&self.config, &objects);
     }
 }

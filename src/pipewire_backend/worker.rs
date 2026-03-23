@@ -198,13 +198,6 @@ pub fn pipewire_worker(
                         .sync_virtual_nodes(&core, &objects, &names),
                 );
             }
-            BackendCommand::CleanupManagedObjects { reply } => {
-                send_reply(
-                    reply,
-                    remove_managed_links_impl(&registry, &objects)
-                        .and_then(|_| remove_managed_virtual_devices_impl(&registry, &objects)),
-                );
-            }
             BackendCommand::Shutdown { reply } => {
                 meter_manager.borrow_mut().clear();
                 if let Err(err) = remove_managed_links_impl(&registry, &objects) {

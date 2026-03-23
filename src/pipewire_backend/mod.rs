@@ -125,9 +125,6 @@ enum BackendCommand {
         names: Vec<String>,
         reply: mpsc::Sender<Result<()>>,
     },
-    CleanupManagedObjects {
-        reply: mpsc::Sender<Result<()>>,
-    },
     Shutdown {
         reply: mpsc::Sender<Result<()>>,
     },
@@ -136,6 +133,49 @@ enum BackendCommand {
 fn send_reply(reply: mpsc::Sender<Result<()>>, res: Result<()>) {
     if reply.send(res).is_err() {
         warn!("frontend reply channel dropped before worker could reply");
+    }
+}
+
+#[derive(Clone)]
+pub struct PipewireBackendClient {
+    pub objects: Arc<Mutex<PwState>>,
+    command_tx: pw::channel::Sender<BackendCommand>,
+}
+
+impl PipewireBackendClient {
+    fn request<F>(&self, build: F) -> Result<()>
+    where
+        F: FnOnce(mpsc::Sender<Result<()>>) -> BackendCommand,
+    {
+        let (reply_tx, reply_rx) = mpsc::channel();
+        self.command_tx
+            .send(build(reply_tx))
+            .map_err(|_| anyhow::anyhow!("failed to send command to PipeWire worker"))?;
+
+        match reply_rx.recv_timeout(COMMAND_TIMEOUT) {
+            Ok(res) => res,
+            Err(err) => bail!("timed out waiting for PipeWire command completion: {err}"),
+        }
+    }
+
+    pub fn sync_managed_virtual_devices(&self, names: Vec<String>) -> Result<()> {
+        self.request(|reply| BackendCommand::SyncManagedVirtualDevices { names, reply })
+    }
+
+    pub fn set_node_volume(&self, node_id: u32, volume: f32) -> Result<()> {
+        self.request(|reply| BackendCommand::SetNodeVolume {
+            node_id,
+            volume,
+            reply,
+        })
+    }
+
+    pub fn sync_routing(&self, links: Vec<DesiredNodeLink>) -> Result<()> {
+        self.request(|reply| BackendCommand::SyncRouting { links, reply })
+    }
+
+    pub fn sync_virtual_meters(&self, names: Vec<String>) -> Result<()> {
+        self.request(|reply| BackendCommand::SyncVirtualMeters { names, reply })
     }
 }
 
@@ -186,10 +226,6 @@ impl PipewireBackend {
         }
     }
 
-    pub fn sync_managed_virtual_devices(&self, names: Vec<String>) -> Result<()> {
-        self.request(|reply| BackendCommand::SyncManagedVirtualDevices { names, reply })
-    }
-
     pub fn set_node_volume(&self, node_id: u32, volume: f32) -> Result<()> {
         self.request(|reply| BackendCommand::SetNodeVolume {
             node_id,
@@ -198,20 +234,15 @@ impl PipewireBackend {
         })
     }
 
-    pub fn sync_routing(&self, links: Vec<DesiredNodeLink>) -> Result<()> {
-        self.request(|reply| BackendCommand::SyncRouting { links, reply })
-    }
-
-    pub fn sync_virtual_meters(&self, names: Vec<String>) -> Result<()> {
-        self.request(|reply| BackendCommand::SyncVirtualMeters { names, reply })
+    pub fn client(&self) -> PipewireBackendClient {
+        PipewireBackendClient {
+            objects: self.objects.clone(),
+            command_tx: self.command_tx.clone(),
+        }
     }
 
     pub fn node_peak_meter(&self, node_id: u32) -> Option<[f32; 2]> {
         self.meters.lock().unwrap().get(&node_id).copied()
-    }
-
-    pub fn cleanup_managed_objects(&self) -> Result<()> {
-        self.request(|reply| BackendCommand::CleanupManagedObjects { reply })
     }
 }
 
@@ -221,13 +252,19 @@ impl Drop for PipewireBackend {
         let _ = self
             .command_tx
             .send(BackendCommand::Shutdown { reply: reply_tx });
-        let _ = reply_rx.recv_timeout(Duration::from_millis(500));
+        let shutdown_ack = reply_rx.recv_timeout(Duration::from_millis(500)).is_ok();
 
         if let Some(handle) = self.handle.take() {
-            match handle.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(err)) => error!("PipeWire worker exited with error: {err}"),
-                Err(_) => error!("PipeWire worker thread panicked"),
+            if shutdown_ack {
+                match handle.join() {
+                    Ok(Ok(())) => {}
+                    Ok(Err(err)) => error!("PipeWire worker exited with error: {err}"),
+                    Err(_) => error!("PipeWire worker thread panicked"),
+                }
+            } else {
+                // Worker did not acknowledge shutdown quickly enough.
+                // Drop the join handle to detach instead of blocking app exit.
+                warn!("PipeWire worker did not acknowledge shutdown in time; detaching thread");
             }
         }
     }

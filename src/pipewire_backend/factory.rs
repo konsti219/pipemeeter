@@ -18,14 +18,6 @@ pub(super) fn handle_factory_global(
     let type_name = props.get("factory.type.name").unwrap().to_owned();
     let module_id = props.get("module.id").unwrap().parse::<u32>().unwrap();
 
-    log::info!(
-        "Factory global added: id={}, name={}, type_name={}, module_id={}",
-        global.id,
-        name,
-        type_name,
-        module_id
-    );
-
     if type_name == "PipeWire:Interface:Node" && name.starts_with("adapter") {
         ADAPTER_FACTORY_NAME.set(name.clone()).unwrap();
     } else if type_name == "PipeWire:Interface:Link" {
