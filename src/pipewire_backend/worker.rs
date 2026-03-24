@@ -198,7 +198,7 @@ fn resolve_virtual_ids(
 fn resolve_nodes_for_config(config: &AppConfig, state: &PwState) -> ResolvedSet {
     let mut nodes = state
         .nodes()
-        .filter(|node| node.category != PwNodeCategory::Pipemeeter)
+        .filter(|node| !node.category.is_pipemeeter())
         .collect::<Vec<_>>();
     nodes.sort_by_key(|node| node.id);
 
@@ -465,10 +465,43 @@ fn sync_virtual_input_combined_volumes(
     Ok(())
 }
 
-fn reconcile_routing_state(state: &BackendState) -> Result<()> {
+fn all_nodes_have_known_ports(state: &PwState) -> bool {
+    let mut known_port_counts: HashMap<u32, (u32, u32)> = HashMap::new();
+    for object in state.values() {
+        let PwObject::Port(port) = object else {
+            continue;
+        };
+
+        let entry = known_port_counts.entry(port.node_id).or_insert((0, 0));
+        match port.direction {
+            PortDirection::In => entry.0 += 1,
+            PortDirection::Out => entry.1 += 1,
+        }
+    }
+
+    for node in state.values().filter_map(|obj| {
+        let PwObject::Node(node) = obj else {
+            return None;
+        };
+        Some(node)
+    }) {
+        let (known_inputs, known_outputs) =
+            known_port_counts.get(&node.id).copied().unwrap_or((0, 0));
+
+        if known_inputs < node.input_ports || known_outputs < node.output_ports {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn reconcile_routing_state(state: &BackendState, reason: &str) -> Result<()> {
     if !state.initialized.get() || state.shutdown.get() {
         return Ok(());
     }
+
+    info!("reconciling routing state (reason: {})", reason);
 
     let Some(config) = state.routing_config.borrow().clone() else {
         return Ok(());
@@ -490,6 +523,14 @@ fn reconcile_routing_state(state: &BackendState) -> Result<()> {
         virtual_outputs: &resolved.virtual_outputs,
     };
 
+    if !all_nodes_have_known_ports(&pw_state) {
+        info!(
+            "routing reconcile deferred (reason: {}) because not all node ports are known yet",
+            reason
+        );
+        return Ok(());
+    }
+
     state.meter_manager.borrow_mut().sync_virtual_nodes(
         &state.core,
         &state.objects,
@@ -504,6 +545,26 @@ fn reconcile_routing_state(state: &BackendState) -> Result<()> {
     Ok(())
 }
 
+// This struct exists because we need to keep the TimerSource alive for the timer
+// to not get dropped/deregistered before firing and need to move it into a closure
+// without recreating it on every closure call, while also satisfying the lifetime requirement.
+#[ouroboros::self_referencing]
+struct TimerHandle {
+    mainloop: pw::main_loop::MainLoopRc,
+    #[borrows(mainloop)]
+    #[covariant] // I am praying this is correct
+    handle: pw::loop_::TimerSource<'this>,
+}
+
+#[derive(Clone)]
+struct CmdSender(pw::channel::Sender<BackendCommand>);
+
+impl std::fmt::Debug for CmdSender {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CmdSender").finish()
+    }
+}
+
 #[derive(Debug, Clone)]
 struct BackendState {
     mainloop: pw::main_loop::MainLoopRc,
@@ -515,6 +576,7 @@ struct BackendState {
     meter_manager: Rc<RefCell<MeterManager>>,
     objects: Arc<Mutex<PwState>>,
 
+    cmd_tx: CmdSender,
     initialized: Rc<Cell<bool>>,
     initial_sync_seq: Rc<RefCell<Option<pw::spa::utils::result::AsyncSeq>>>,
 
@@ -523,9 +585,16 @@ struct BackendState {
     shutdown_reply_tx: Rc<RefCell<Option<mpsc::Sender<Result<()>>>>>,
 }
 
+impl BackendState {
+    fn set_rebuild_timer(&self) {
+        self.cmd_tx.0.send(BackendCommand::ResetTimer).unwrap();
+    }
+}
+
 pub fn pipewire_worker(
     objects: Arc<Mutex<PwState>>,
     meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>,
+    cmd_tx: pw::channel::Sender<BackendCommand>,
     cmd_rx: pw::channel::Receiver<BackendCommand>,
     ready_tx: mpsc::Sender<Result<()>>,
 ) -> JoinHandle<Result<()>> {
@@ -553,6 +622,7 @@ pub fn pipewire_worker(
             proxies: Rc::new(RefCell::new(PwProxies::new())),
             meter_manager: Rc::new(RefCell::new(MeterManager::new(meters))),
             objects,
+            cmd_tx: CmdSender(cmd_tx),
             initialized: Rc::new(Cell::new(false)),
             initial_sync_seq: Rc::new(RefCell::new(None)),
             shutdown: Rc::new(Cell::new(false)),
@@ -561,6 +631,7 @@ pub fn pipewire_worker(
         };
 
         let state_done = state.clone();
+        let ready_tx_done = ready_tx.clone();
 
         let _core_listener = state
             .core
@@ -581,7 +652,10 @@ pub fn pipewire_worker(
                 if id == pw::core::PW_ID_CORE {
                     if let Some(expected) = *state_done.initial_sync_seq.borrow() {
                         if seq == expected {
+                            info!("initial sync complete");
                             state_done.initialized.set(true);
+                            let _ = ready_tx_done.send(Ok(()));
+                            state_done.set_rebuild_timer();
                         }
                     }
 
@@ -614,7 +688,7 @@ pub fn pipewire_worker(
                 // );
 
                 let mut objects = state_add.objects.lock().unwrap();
-                match global.type_ {
+                let rebuild = match global.type_ {
                     ObjectType::Client => {
                         let module_id = props.get(&MODULE_ID).unwrap().parse::<u32>().unwrap();
                         let application_name = props.get(&APP_NAME).unwrap().to_owned();
@@ -625,9 +699,11 @@ pub fn pipewire_worker(
                                 application_name,
                             }),
                         );
+                        false
                     }
                     ObjectType::Core => {
                         objects.insert(global.id, PwObject::Core);
+                        false
                     }
                     ObjectType::Device => {
                         handle_device_global(
@@ -638,28 +714,30 @@ pub fn pipewire_worker(
                             &state_add.registry,
                             &state_add.proxies,
                         );
+                        false
                     }
                     ObjectType::Factory => {
                         handle_factory_global(global, props, &mut objects);
+                        false
                     }
                     ObjectType::Metadata => {
                         let name = props.get("metadata.name").unwrap().to_owned();
                         objects.insert(global.id, PwObject::Metadata(name));
+                        false
                     }
                     ObjectType::Module => {
                         let name = props.get("module.name").unwrap().to_owned();
                         objects.insert(global.id, PwObject::Module(name));
+                        false
                     }
-                    ObjectType::Node => {
-                        handle_node_global(
-                            global,
-                            props,
-                            &mut objects,
-                            &state_add.objects,
-                            &state_add.registry,
-                            &state_add.proxies,
-                        );
-                    }
+                    ObjectType::Node => handle_node_global(
+                        global,
+                        props,
+                        &mut objects,
+                        &state_add.objects,
+                        &state_add.registry,
+                        &state_add.proxies,
+                    ),
                     ObjectType::Port => {
                         handle_port_global(
                             global,
@@ -669,9 +747,11 @@ pub fn pipewire_worker(
                             &state_add.registry,
                             &state_add.proxies,
                         );
+                        false
                     }
                     ObjectType::Profiler => {
                         objects.insert(global.id, PwObject::Profiler);
+                        false
                     }
                     ObjectType::Link => {
                         let client_id = props.get(&CLIENT_ID).unwrap().parse::<u32>().unwrap();
@@ -700,42 +780,62 @@ pub fn pipewire_worker(
                                 output_port,
                             }),
                         );
+                        false
                     }
                     _ => {
                         warn!("unhandled object type: {}", global.type_);
+                        false
                     }
-                }
+                };
                 drop(objects);
 
-                if let Err(err) = reconcile_routing_state(&state_add) {
-                    error!("failed to reconcile routing state: {err}");
+                if rebuild {
+                    state_add.set_rebuild_timer();
                 }
             })
             .global_remove(move |id| {
                 let mut objects = state_remove.objects.lock().unwrap();
-                if let Some(_object) = objects.remove(&id) {
-                    // info!("object removed: id={} object={:?}", id, _object);
-                } else {
+                let removed = objects.remove(&id);
+                if removed.is_none() {
                     warn!("object removed but not found in state: id={id}");
+                } else {
+                    let relevant = matches!(
+                        removed,
+                        Some(PwObject::Node(_)) | Some(PwObject::Port(_)) | Some(PwObject::Link(_))
+                    );
+                    if relevant {
+                        // mark_routing_dirty(&state_remove, "global remove");
+                        // state_remove.set_rebuild_timer("global remove");
+                    }
                 }
                 state_remove.proxies.borrow_mut().remove(&id);
                 drop(objects);
-
-                if let Err(err) = reconcile_routing_state(&state_remove) {
-                    error!("failed to reconcile routing state: {err}");
-                }
             })
             .register();
 
         let state_cmd = state.clone();
+        let state_timer = state_cmd.clone();
+        let timer_handle = TimerHandleBuilder {
+            mainloop: state.mainloop.clone(),
+            handle_builder: |mainloop| {
+                mainloop.loop_().add_timer(move |_| {
+                    log::warn!("rebuild timer fired");
+                    if let Err(err) = reconcile_routing_state(&state_timer, "rebuild timer") {
+                        error!("failed to reconcile routing state: {err}");
+                    }
+                })
+            },
+        }
+        .build();
 
         // This receiver is attached to PipeWire's loop and wakes it through an internal pipe,
         // so frontend commands are processed even when no PipeWire graph events occur.
         let _cmd_source = cmd_rx.attach(state.mainloop.loop_(), move |cmd| match cmd {
             BackendCommand::SetRoutingConfig { config, reply } => {
                 *state_cmd.routing_config.as_ref().borrow_mut() = Some(config);
-                let res = reconcile_routing_state(&state_cmd);
-                send_reply(reply, res);
+                // TODO: this deadlocks
+                // state_cmd.set_rebuild_timer("routing config change");
+                send_reply(reply, Ok(()));
             }
             BackendCommand::SetNodeVolume {
                 node_id,
@@ -768,6 +868,11 @@ pub fn pipewire_worker(
                     }
                 }
             }
+            BackendCommand::ResetTimer => {
+                timer_handle.with_handle(|handle| {
+                    handle.update_timer(Some(Duration::from_millis(10)), None);
+                });
+            }
         });
 
         let initial_sync = match state.core.sync(0) {
@@ -779,7 +884,6 @@ pub fn pipewire_worker(
         };
         *state.initial_sync_seq.borrow_mut() = Some(initial_sync);
 
-        let _ = ready_tx.send(Ok(()));
         state.mainloop.run();
         info!("PipeWire worker thread exiting");
 

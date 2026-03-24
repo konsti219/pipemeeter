@@ -12,10 +12,7 @@ fn managed_virtual_strip_nodes(state: &PwState) -> HashSet<u32> {
                 return None;
             };
 
-            if node.category == PwNodeCategory::Pipemeeter
-                && (node.name.starts_with("pipemeeter/vin-")
-                    || node.name.starts_with("pipemeeter/vout-"))
-            {
+            if node.category.is_pipemeeter() {
                 Some(node.id)
             } else {
                 None
@@ -285,7 +282,6 @@ pub fn sync_routing_impl(
                     "link.input.node" => in_node_text.as_str(),
                     "link.input.port" => in_port_text.as_str(),
                     "object.linger" => "true",
-                    "pipemeeter.managed" => "true",
                 },
             )
             .with_context(|| {

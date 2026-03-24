@@ -14,6 +14,8 @@ pub struct PwNode {
     // pub client_api: Option<String>,
     pub device_id: Option<u32>,
     pub process_binary: Option<String>,
+    pub input_ports: u32,
+    pub output_ports: u32,
     pub volume: [f32; 2],
 }
 
@@ -23,8 +25,28 @@ pub enum PwNodeCategory {
     InputDevice,
     PlaybackStream,
     RecordingStream,
-    Pipemeeter,
+    PipemeeterNode,
+    PipemeeterMeter,
     Other,
+}
+
+impl PwNodeCategory {
+    pub fn is_user_facing(&self) -> bool {
+        matches!(
+            self,
+            PwNodeCategory::OutputDevice
+                | PwNodeCategory::InputDevice
+                | PwNodeCategory::PlaybackStream
+                | PwNodeCategory::RecordingStream
+        )
+    }
+
+    pub fn is_pipemeeter(&self) -> bool {
+        matches!(
+            self,
+            PwNodeCategory::PipemeeterNode | PwNodeCategory::PipemeeterMeter
+        )
+    }
 }
 
 // Media Classes:
@@ -32,6 +54,8 @@ pub enum PwNodeCategory {
 // - Audio/Device for devices
 // - Audio/Sink for sinks (wivrn)
 
+/// Handle a new node being found in the pw graph.
+/// Returns true if a graph rebuild shoudl happen.
 pub(super) fn handle_node_global(
     global: &pw::registry::GlobalObject<&pw::spa::utils::dict::DictRef>,
     props: &pw::spa::utils::dict::DictRef,
@@ -39,7 +63,7 @@ pub(super) fn handle_node_global(
     objects_for_updates: &Arc<Mutex<PwState>>,
     registry: &pw::registry::RegistryRc,
     proxies: &Rc<RefCell<PwProxies>>,
-) {
+) -> bool {
     let node_id = global.id;
     let objects_info = objects_for_updates.clone();
     let objects_param = objects_for_updates.clone();
@@ -47,44 +71,33 @@ pub(super) fn handle_node_global(
     let listener = proxy
         .add_listener_local()
         .info(move |info| {
-            let media_name = info.props().and_then(|p| p.get(&MEDIA_NAME)).owned();
-            let managed_by_pipemeeter = info
-                .props()
-                .and_then(|p| p.get("pipemeeter.managed"))
-                .is_some();
-            let process_binary = info
-                .props()
-                .and_then(|p| p.get(&APP_PROCESS_BINARY))
-                .map(ToOwned::to_owned);
-            let monitor = info
-                .props()
-                .and_then(|p| p.get(&STREAM_MONITOR))
-                .map_or(false, |v| v == "true");
-
             let mut objects = objects_info.lock().unwrap();
             if let Some(PwObject::Node(node)) = objects.get_mut(&node_id) {
-                let media_class = info.props().and_then(|p| p.get(&MEDIA_CLASS)).owned();
-                let media_class = media_class.or_else(|| node.media_class.clone());
+                node.input_ports = info.n_input_ports();
+                node.output_ports = info.n_output_ports();
 
-                // only set if present. This could theoratically lead to stale data, but in practice there are more cases
-                // where it is missing in some callbacks.
-                if let Some(media_name) = media_name {
+                let Some(props) = info.props() else {
+                    return;
+                };
+
+                // Nodes do not loose properties and info updates only contain changed properties, so do merging
+
+                if let Some(media_name) = props.get(&MEDIA_NAME).owned() {
                     node.media_name = Some(media_name);
                 }
 
-                if let Some(process_binary) = process_binary {
+                if let Some(process_binary) = props.get(&APP_PROCESS_BINARY).owned() {
                     node.process_binary = Some(process_binary);
                 }
 
-                if !matches!(
-                    node.category,
-                    PwNodeCategory::Other | PwNodeCategory::Pipemeeter
-                ) {
-                    node.category = classify_node_category(
-                        media_class.as_deref(),
-                        monitor,
-                        managed_by_pipemeeter,
-                    );
+                let media_class = props.get(&MEDIA_CLASS).owned();
+                let media_class = media_class.or_else(|| node.media_class.clone());
+                let monitor = props.get(&STREAM_MONITOR).map_or(false, |v| v == "true");
+
+                // Only attempt to reclassify if it is not already detected as a special node.
+                if node.category.is_user_facing() {
+                    node.category =
+                        classify_node_category(&node.name, media_class.as_deref(), monitor);
                 }
             }
         })
@@ -104,29 +117,42 @@ pub(super) fn handle_node_global(
     proxy.subscribe_params(&[ParamType::Props]);
     proxy.enum_params(1, Some(ParamType::Props), 0, u32::MAX);
 
+    let name = props.get(&pw::keys::NODE_NAME).unwrap().to_owned();
+    let media_class = props.get(&MEDIA_CLASS).owned();
+
+    // It is importent to immediatly identify our own nodes as such, which why we fallback to
+    // the name instead of a custom property.
+    let category = classify_node_category(
+        &name,
+        media_class.as_deref(),
+        props.get(&STREAM_MONITOR).is_some_and(|v| v == "true"),
+    );
+
     let node = PwNode {
         id: global.id,
-        name: props.get(&pw::keys::NODE_NAME).unwrap().to_owned(),
+        name: name,
         description: props.get(&pw::keys::NODE_DESCRIPTION).owned(),
         nick: props.get(&pw::keys::NODE_NICK).owned(),
-        media_class: props.get(&MEDIA_CLASS).owned(),
-        category: classify_node_category(
-            props.get(&MEDIA_CLASS),
-            props.get(&STREAM_MONITOR).is_some_and(|v| v == "true"),
-            props.get("pipemeeter.managed").is_some(),
-        ),
+        media_class,
+        category,
         media_name: None, // never in the static properties
         // factory_id: props.get(&FACTORY_ID).unwrap().parse::<u32>().unwrap(),
         // client_id: props.get(&CLIENT_ID).map(|v| v.parse::<u32>().unwrap()),
         // client_api: props.get(&CLIENT_API).map(ToOwned::to_owned),
         device_id: props.get(&DEVICE_ID).map(|v| v.parse::<u32>().unwrap()),
         process_binary: None,
+        // default to max as we use this for checking if we know all ports of a node.
+        // we update this in the info callback
+        input_ports: u32::MAX,
+        output_ports: u32::MAX,
         volume: [1.0, 1.0],
     };
     objects.insert(global.id, PwObject::Node(node));
     proxies
         .borrow_mut()
         .insert(global.id, PwProxy::Node(proxy, listener));
+
+    category.is_user_facing()
 }
 
 fn classify_media_class(media_class: Option<&str>) -> PwNodeCategory {
@@ -147,13 +173,13 @@ fn classify_media_class(media_class: Option<&str>) -> PwNodeCategory {
     }
 }
 
-fn classify_node_category(
-    media_class: Option<&str>,
-    monitor: bool,
-    managed_by_pipemeeter: bool,
-) -> PwNodeCategory {
-    if managed_by_pipemeeter {
-        return PwNodeCategory::Pipemeeter;
+fn classify_node_category(name: &str, media_class: Option<&str>, monitor: bool) -> PwNodeCategory {
+    if name.starts_with(VIRTUAL_DEVICE_PREFIX) {
+        if monitor {
+            return PwNodeCategory::PipemeeterMeter;
+        } else {
+            return PwNodeCategory::PipemeeterNode;
+        }
     }
 
     if monitor {

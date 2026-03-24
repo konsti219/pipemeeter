@@ -118,6 +118,7 @@ fn create_mainloop() -> Result<(pw::main_loop::MainLoopRc, pw::core::CoreRc)> {
     Ok((mainloop, core))
 }
 
+#[derive(Debug)]
 enum BackendCommand {
     SetRoutingConfig {
         config: AppConfig,
@@ -131,6 +132,8 @@ enum BackendCommand {
     Shutdown {
         reply: mpsc::Sender<Result<()>>,
     },
+    /// For backend internal use
+    ResetTimer,
 }
 
 fn send_reply(reply: mpsc::Sender<Result<()>>, res: Result<()>) {
@@ -154,7 +157,13 @@ impl PipewireBackend {
         let (command_tx, command_rx) = pw::channel::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
 
-        let handle = pipewire_worker(objects.clone(), meters.clone(), command_rx, ready_tx);
+        let handle = pipewire_worker(
+            objects.clone(),
+            meters.clone(),
+            command_tx.clone(),
+            command_rx,
+            ready_tx,
+        );
         match ready_rx.recv_timeout(COMMAND_TIMEOUT) {
             Ok(Ok(())) => {}
             Ok(Err(err)) => return Err(err),

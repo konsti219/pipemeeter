@@ -23,8 +23,17 @@ fn destroy_nodes_by_id(
     Ok(())
 }
 
+static MAX_NODES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result<()> {
     info!("graph change: create virtual node name='{name}'",);
+
+    // return Ok(());
+
+    let current = MAX_NODES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    if current >= 4 {
+        return Ok(());
+    }
 
     let _node = core
         .create_object::<pw::node::Node>(
@@ -41,7 +50,6 @@ pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result
                 "audio.position" => "FL FR",
                 "monitor.channel-volumes" => "true",
                 "object.linger" => "true",
-                "pipemeeter.managed" => "true",
             },
         )
         .context("failed to create virtual device")?;
@@ -66,7 +74,7 @@ pub fn sync_managed_virtual_devices_impl(
                 continue;
             };
 
-            if node.category != PwNodeCategory::Pipemeeter {
+            if !node.category.is_pipemeeter() {
                 continue;
             }
 
@@ -111,7 +119,7 @@ pub fn remove_managed_virtual_devices_impl(
         state
             .iter()
             .filter_map(|(id, obj)| match obj {
-                PwObject::Node(node) if node.category == PwNodeCategory::Pipemeeter => Some(*id),
+                PwObject::Node(node) if node.category.is_pipemeeter() => Some(*id),
                 _ => None,
             })
             .collect::<Vec<_>>()

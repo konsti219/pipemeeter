@@ -194,7 +194,7 @@ pub(super) fn resolve_nodes_for_config(
 ) -> HashMap<StripTarget, Vec<ResolvedNodeEntry>> {
     let mut nodes = objects
         .nodes()
-        .filter(|node| node.category != PwNodeCategory::Pipemeeter)
+        .filter(|node| !node.category.is_pipemeeter())
         .collect::<Vec<_>>();
     nodes.sort_by_key(|node| node.id);
 
