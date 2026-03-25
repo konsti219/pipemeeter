@@ -33,8 +33,8 @@ fn linear_peak_to_meter_level(peak: f32) -> f32 {
 
 #[derive(Debug)]
 pub struct MeterManager {
-    meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>,
     taps: HashMap<u32, MeterTap>,
+    meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>,
 }
 
 impl MeterManager {

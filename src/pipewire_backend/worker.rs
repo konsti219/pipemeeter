@@ -496,12 +496,12 @@ fn all_nodes_have_known_ports(state: &PwState) -> bool {
     true
 }
 
-fn reconcile_routing_state(state: &BackendState, reason: &str) -> Result<()> {
+fn reconcile_routing_state(state: &BackendState) -> Result<()> {
     if !state.initialized.get() || state.shutdown.get() {
         return Ok(());
     }
 
-    info!("reconciling routing state (reason: {})", reason);
+    info!("reconciling routing state");
 
     let Some(config) = state.routing_config.borrow().clone() else {
         return Ok(());
@@ -524,10 +524,7 @@ fn reconcile_routing_state(state: &BackendState, reason: &str) -> Result<()> {
     };
 
     if !all_nodes_have_known_ports(&pw_state) {
-        info!(
-            "routing reconcile deferred (reason: {}) because not all node ports are known yet",
-            reason
-        );
+        info!("routing reconcile deferred because not all node ports are known yet");
         return Ok(());
     }
 
@@ -647,8 +644,6 @@ pub fn pipewire_worker(
                 error!("{id} seq={seq} res={res}: {message}");
             })
             .done(move |id, seq| {
-                info!("worker done: id={id} seq={seq:?}");
-
                 if id == pw::core::PW_ID_CORE {
                     if let Some(expected) = *state_done.initial_sync_seq.borrow() {
                         if seq == expected {
@@ -688,7 +683,7 @@ pub fn pipewire_worker(
                 // );
 
                 let mut objects = state_add.objects.lock().unwrap();
-                let rebuild = match global.type_ {
+                match global.type_ {
                     ObjectType::Client => {
                         let module_id = props.get(&MODULE_ID).unwrap().parse::<u32>().unwrap();
                         let application_name = props.get(&APP_NAME).unwrap().to_owned();
@@ -699,11 +694,9 @@ pub fn pipewire_worker(
                                 application_name,
                             }),
                         );
-                        false
                     }
                     ObjectType::Core => {
                         objects.insert(global.id, PwObject::Core);
-                        false
                     }
                     ObjectType::Device => {
                         handle_device_global(
@@ -714,30 +707,28 @@ pub fn pipewire_worker(
                             &state_add.registry,
                             &state_add.proxies,
                         );
-                        false
                     }
                     ObjectType::Factory => {
                         handle_factory_global(global, props, &mut objects);
-                        false
                     }
                     ObjectType::Metadata => {
                         let name = props.get("metadata.name").unwrap().to_owned();
                         objects.insert(global.id, PwObject::Metadata(name));
-                        false
                     }
                     ObjectType::Module => {
                         let name = props.get("module.name").unwrap().to_owned();
                         objects.insert(global.id, PwObject::Module(name));
-                        false
                     }
-                    ObjectType::Node => handle_node_global(
-                        global,
-                        props,
-                        &mut objects,
-                        &state_add.objects,
-                        &state_add.registry,
-                        &state_add.proxies,
-                    ),
+                    ObjectType::Node => {
+                        handle_node_global(
+                            global,
+                            props,
+                            &mut objects,
+                            &state_add.objects,
+                            &state_add.registry,
+                            &state_add.proxies,
+                        );
+                    }
                     ObjectType::Port => {
                         handle_port_global(
                             global,
@@ -747,11 +738,9 @@ pub fn pipewire_worker(
                             &state_add.registry,
                             &state_add.proxies,
                         );
-                        false
                     }
                     ObjectType::Profiler => {
                         objects.insert(global.id, PwObject::Profiler);
-                        false
                     }
                     ObjectType::Link => {
                         let client_id = props.get(&CLIENT_ID).unwrap().parse::<u32>().unwrap();
@@ -780,16 +769,17 @@ pub fn pipewire_worker(
                                 output_port,
                             }),
                         );
-                        false
                     }
                     _ => {
                         warn!("unhandled object type: {}", global.type_);
-                        false
                     }
-                };
+                }
                 drop(objects);
 
-                if rebuild {
+                if matches!(
+                    global.type_,
+                    ObjectType::Node | ObjectType::Port | ObjectType::Link
+                ) {
                     state_add.set_rebuild_timer();
                 }
             })
@@ -799,13 +789,11 @@ pub fn pipewire_worker(
                 if removed.is_none() {
                     warn!("object removed but not found in state: id={id}");
                 } else {
-                    let relevant = matches!(
+                    if matches!(
                         removed,
                         Some(PwObject::Node(_)) | Some(PwObject::Port(_)) | Some(PwObject::Link(_))
-                    );
-                    if relevant {
-                        // mark_routing_dirty(&state_remove, "global remove");
-                        // state_remove.set_rebuild_timer("global remove");
+                    ) {
+                        state_remove.set_rebuild_timer();
                     }
                 }
                 state_remove.proxies.borrow_mut().remove(&id);
@@ -819,8 +807,7 @@ pub fn pipewire_worker(
             mainloop: state.mainloop.clone(),
             handle_builder: |mainloop| {
                 mainloop.loop_().add_timer(move |_| {
-                    log::warn!("rebuild timer fired");
-                    if let Err(err) = reconcile_routing_state(&state_timer, "rebuild timer") {
+                    if let Err(err) = reconcile_routing_state(&state_timer) {
                         error!("failed to reconcile routing state: {err}");
                     }
                 })
@@ -833,8 +820,13 @@ pub fn pipewire_worker(
         let _cmd_source = cmd_rx.attach(state.mainloop.loop_(), move |cmd| match cmd {
             BackendCommand::SetRoutingConfig { config, reply } => {
                 *state_cmd.routing_config.as_ref().borrow_mut() = Some(config);
-                // TODO: this deadlocks
-                // state_cmd.set_rebuild_timer("routing config change");
+
+                // We cannot send a message to the channel from teh listener because
+                // it will deadlock the channel, so just set the timer directly here.
+                timer_handle.with_handle(|handle| {
+                    handle.update_timer(Some(Duration::from_millis(10)), None);
+                });
+
                 send_reply(reply, Ok(()));
             }
             BackendCommand::SetNodeVolume {
