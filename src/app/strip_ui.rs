@@ -358,7 +358,8 @@ pub fn draw_volume_meter(ui: &mut egui::Ui, levels: [f32; 2], size: egui::Vec2) 
 
     let bg = egui::Color32::from_rgb(42, 47, 53);
     let border = egui::Color32::from_rgb(70, 77, 85);
-    let fill = egui::Color32::from_rgb(92, 194, 110);
+    let fill_green = egui::Color32::from_rgb(92, 194, 110);
+    let fill_yellow = egui::Color32::from_rgb(223, 208, 97);
 
     let channels_width = CHANNEL_WIDTH * 2.0 + CHANNEL_GAP;
     let channels_left = rect.left() + ((rect.width() - channels_width) * 0.5).max(0.0);
@@ -398,6 +399,7 @@ pub fn draw_volume_meter(ui: &mut egui::Ui, levels: [f32; 2], size: egui::Vec2) 
                 channel_rect.bottom() - INNER_MARGIN,
             ),
         );
-        painter.rect_filled(fill_rect, 1.0, fill);
+        let color = if level < 1.0 { fill_green } else { fill_yellow };
+        painter.rect_filled(fill_rect, 1.0, color);
     }
 }
