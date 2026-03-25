@@ -252,13 +252,14 @@ impl PipeMeeterApp {
         self.resolved_nodes.get(&target).map(format_resolved_title)
     }
 
-    pub(super) fn resolved_meter_level(&self, target: StripTarget) -> Option<[f32; 2]> {
+    pub(super) fn resolved_meter_level(&self, target: StripTarget) -> [f32; 2] {
         match target.category {
             PwNodeCategory::InputDevice => self
                 .resolved_node_ids(target)
                 .first()
                 .copied()
-                .and_then(|id| self.backend.node_peak_meter(id)),
+                .map(|id| self.backend.node_peak_meter(id))
+                .unwrap_or_default(),
             PwNodeCategory::OutputDevice => {
                 let slider = self
                     .strip_ref(target)
@@ -267,16 +268,19 @@ impl PipeMeeterApp {
                 self.resolved_node_ids(target)
                     .first()
                     .copied()
-                    .and_then(|id| self.backend.node_peak_meter(id))
+                    .map(|id| self.backend.node_peak_meter(id))
                     .map(|levels| [levels[0] * slider, levels[1] * slider])
+                    .unwrap_or_default()
             }
             PwNodeCategory::PlaybackStream => self
                 .virtual_input_combined_node_id(target.index)
-                .and_then(|id| self.backend.node_peak_meter(id)),
+                .map(|id| self.backend.node_peak_meter(id))
+                .unwrap_or_default(),
             PwNodeCategory::RecordingStream => self
                 .virtual_output_combined_node_id(target.index)
-                .and_then(|id| self.backend.node_peak_meter(id)),
-            _ => None,
+                .map(|id| self.backend.node_peak_meter(id))
+                .unwrap_or_default(),
+            _ => [0.0, 0.0],
         }
     }
 

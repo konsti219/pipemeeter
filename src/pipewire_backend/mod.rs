@@ -207,8 +207,9 @@ impl PipewireBackend {
         self.request(|reply| BackendCommand::SetRoutingConfig { config, reply })
     }
 
-    pub fn node_peak_meter(&self, node_id: u32) -> Option<[f32; 2]> {
-        self.meters.lock().unwrap().get(&node_id).copied()
+    pub fn node_peak_meter(&self, node_id: u32) -> [f32; 2] {
+        let meters = self.meters.lock().unwrap();
+        meters.get(&node_id).copied().unwrap_or_default()
     }
 }
 

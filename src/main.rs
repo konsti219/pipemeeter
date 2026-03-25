@@ -1,12 +1,11 @@
-mod app;
-mod config;
-mod pipewire_backend;
-mod ui;
-
 use anyhow::Context;
 use app::PipeMeeterApp;
 use eframe::egui;
 use log::error;
+
+mod app;
+mod config;
+mod pipewire_backend;
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))

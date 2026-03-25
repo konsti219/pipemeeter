@@ -1,100 +1,8 @@
 use eframe::egui;
 
 use crate::pipewire_backend::PwNodeCategory;
-use crate::ui::draw_placeholder_meter;
 
 use super::{Group, PipeMeeterApp, StripTarget};
-
-fn draw_strip_header(
-    ui: &mut egui::Ui,
-    strip_name: &str,
-    first_line: &str,
-    second_line: Option<&str>,
-    unresolved: bool,
-) -> bool {
-    let mut open_dialog = false;
-
-    ui.horizontal(|ui| {
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-        ui.label(egui::RichText::new(strip_name).strong());
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let gear = egui::Button::new(egui::RichText::new("⚙").size(14.0))
-                .min_size(egui::vec2(22.0, 22.0));
-            if ui.add(gear).clicked() {
-                open_dialog = true;
-            }
-        });
-    });
-
-    if let Some(second_line) = second_line {
-        let color = if unresolved {
-            egui::Color32::RED
-        } else {
-            ui.visuals().text_color()
-        };
-
-        ui.scope(|ui| {
-            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-            ui.spacing_mut().item_spacing.y = 0.0;
-            ui.colored_label(color, first_line);
-            ui.colored_label(color, second_line);
-        });
-    } else {
-        let node_title_height = ui.text_style_height(&egui::TextStyle::Body) * 2.0;
-        let width = ui.available_width();
-        let (rect, _) =
-            ui.allocate_exact_size(egui::vec2(width, node_title_height), egui::Sense::hover());
-        let mut layout_job = egui::text::LayoutJob::default();
-        layout_job.append(
-            first_line,
-            0.0,
-            egui::TextFormat {
-                color: if unresolved {
-                    egui::Color32::RED
-                } else {
-                    ui.visuals().text_color()
-                },
-                ..egui::TextFormat::default()
-            },
-        );
-        layout_job.wrap.max_width = width;
-        layout_job.wrap.max_rows = 2;
-        let galley = ui.painter().layout_job(layout_job);
-        ui.painter().with_clip_rect(rect).galley(
-            rect.min,
-            galley,
-            if unresolved {
-                egui::Color32::RED
-            } else {
-                ui.visuals().text_color()
-            },
-        );
-    }
-
-    open_dialog
-}
-
-fn draw_slider_knob_percentage(ui: &egui::Ui, slider_rect: egui::Rect, slider_value: f32) {
-    let t = slider_value.clamp(0.0, 1.0);
-    let base_handle_radius = slider_rect.width() / 2.5;
-    let handle_extent = match ui.style().visuals.handle_shape {
-        egui::style::HandleShape::Circle => base_handle_radius,
-        egui::style::HandleShape::Rect { aspect_ratio } => base_handle_radius * aspect_ratio,
-    };
-    let y_top = slider_rect.top() + handle_extent;
-    let y_bottom = slider_rect.bottom() - handle_extent;
-    let knob_y = egui::lerp(y_bottom..=y_top, t);
-    let percent = (t * 100.0).round() as i32;
-
-    ui.painter().text(
-        egui::pos2(slider_rect.center().x, knob_y),
-        egui::Align2::CENTER_CENTER,
-        format!("{percent}"),
-        egui::FontId::proportional(11.0),
-        ui.visuals().widgets.active.fg_stroke.color,
-    );
-}
 
 impl PipeMeeterApp {
     pub(super) fn draw_input_subgroup(
@@ -160,12 +68,7 @@ impl PipeMeeterApp {
                         ui.add_space(3.0);
 
                         ui.horizontal(|ui| {
-                            draw_placeholder_meter(
-                                ui,
-                                resolved_meter_level
-                                    .unwrap_or([strip.placeholder_meter, strip.placeholder_meter]),
-                                egui::vec2(32.0, 250.0),
-                            );
+                            draw_volume_meter(ui, resolved_meter_level, egui::vec2(32.0, 250.0));
                             let slider = egui::Slider::new(&mut strip.volume, 0.0..=1.0)
                                 .step_by(0.05)
                                 .vertical()
@@ -295,12 +198,7 @@ impl PipeMeeterApp {
                         ui.add_space(3.0);
 
                         ui.horizontal(|ui| {
-                            draw_placeholder_meter(
-                                ui,
-                                resolved_meter_level
-                                    .unwrap_or([strip.placeholder_meter, strip.placeholder_meter]),
-                                egui::vec2(32.0, 250.0),
-                            );
+                            draw_volume_meter(ui, resolved_meter_level, egui::vec2(32.0, 250.0));
                             let slider = egui::Slider::new(&mut strip.volume, 0.0..=1.0)
                                 .step_by(0.05)
                                 .vertical()
@@ -355,5 +253,151 @@ impl PipeMeeterApp {
                 }
             });
         });
+    }
+}
+
+fn draw_strip_header(
+    ui: &mut egui::Ui,
+    strip_name: &str,
+    first_line: &str,
+    second_line: Option<&str>,
+    unresolved: bool,
+) -> bool {
+    let mut open_dialog = false;
+
+    ui.horizontal(|ui| {
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+        ui.label(egui::RichText::new(strip_name).strong());
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let gear = egui::Button::new(egui::RichText::new("⚙").size(14.0))
+                .min_size(egui::vec2(22.0, 22.0));
+            if ui.add(gear).clicked() {
+                open_dialog = true;
+            }
+        });
+    });
+
+    if let Some(second_line) = second_line {
+        let color = if unresolved {
+            egui::Color32::RED
+        } else {
+            ui.visuals().text_color()
+        };
+
+        ui.scope(|ui| {
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            ui.colored_label(color, first_line);
+            ui.colored_label(color, second_line);
+        });
+    } else {
+        let node_title_height = ui.text_style_height(&egui::TextStyle::Body) * 2.0;
+        let width = ui.available_width();
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(width, node_title_height), egui::Sense::hover());
+        let mut layout_job = egui::text::LayoutJob::default();
+        layout_job.append(
+            first_line,
+            0.0,
+            egui::TextFormat {
+                color: if unresolved {
+                    egui::Color32::RED
+                } else {
+                    ui.visuals().text_color()
+                },
+                ..egui::TextFormat::default()
+            },
+        );
+        layout_job.wrap.max_width = width;
+        layout_job.wrap.max_rows = 2;
+        let galley = ui.painter().layout_job(layout_job);
+        ui.painter().with_clip_rect(rect).galley(
+            rect.min,
+            galley,
+            if unresolved {
+                egui::Color32::RED
+            } else {
+                ui.visuals().text_color()
+            },
+        );
+    }
+
+    open_dialog
+}
+
+fn draw_slider_knob_percentage(ui: &egui::Ui, slider_rect: egui::Rect, slider_value: f32) {
+    let t = slider_value.clamp(0.0, 1.0);
+    let base_handle_radius = slider_rect.width() / 2.5;
+    let handle_extent = match ui.style().visuals.handle_shape {
+        egui::style::HandleShape::Circle => base_handle_radius,
+        egui::style::HandleShape::Rect { aspect_ratio } => base_handle_radius * aspect_ratio,
+    };
+    let y_top = slider_rect.top() + handle_extent;
+    let y_bottom = slider_rect.bottom() - handle_extent;
+    let knob_y = egui::lerp(y_bottom..=y_top, t);
+    let percent = (t * 100.0).round() as i32;
+
+    ui.painter().text(
+        egui::pos2(slider_rect.center().x, knob_y),
+        egui::Align2::CENTER_CENTER,
+        format!("{percent}"),
+        egui::FontId::proportional(11.0),
+        ui.visuals().widgets.active.fg_stroke.color,
+    );
+}
+
+pub fn draw_volume_meter(ui: &mut egui::Ui, levels: [f32; 2], size: egui::Vec2) {
+    const CHANNEL_WIDTH: f32 = 15.0;
+    const CHANNEL_GAP: f32 = 2.0;
+    const CORNER_RADIUS: f32 = 2.0;
+    const INNER_MARGIN: f32 = 2.0;
+
+    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+
+    let bg = egui::Color32::from_rgb(42, 47, 53);
+    let border = egui::Color32::from_rgb(70, 77, 85);
+    let fill = egui::Color32::from_rgb(92, 194, 110);
+
+    let channels_width = CHANNEL_WIDTH * 2.0 + CHANNEL_GAP;
+    let channels_left = rect.left() + ((rect.width() - channels_width) * 0.5).max(0.0);
+    let left_rect = egui::Rect::from_min_size(
+        egui::pos2(channels_left, rect.top()),
+        egui::vec2(CHANNEL_WIDTH, rect.height()),
+    );
+    let right_rect = egui::Rect::from_min_size(
+        egui::pos2(channels_left + CHANNEL_WIDTH + CHANNEL_GAP, rect.top()),
+        egui::vec2(CHANNEL_WIDTH, rect.height()),
+    );
+
+    for channel_rect in [left_rect, right_rect] {
+        painter.rect_filled(channel_rect, CORNER_RADIUS, bg);
+        painter.rect_stroke(
+            channel_rect,
+            CORNER_RADIUS,
+            egui::Stroke::new(1.0, border),
+            egui::StrokeKind::Outside,
+        );
+    }
+
+    for (channel_rect, level) in [(left_rect, levels[0]), (right_rect, levels[1])] {
+        let clamped = level.clamp(0.0, 1.0);
+        if clamped <= 0.0 {
+            continue;
+        }
+
+        let fill_height = rect.height() * clamped;
+        let fill_rect = egui::Rect::from_min_max(
+            egui::pos2(
+                channel_rect.left() + INNER_MARGIN,
+                channel_rect.bottom() - fill_height,
+            ),
+            egui::pos2(
+                channel_rect.right() - INNER_MARGIN,
+                channel_rect.bottom() - INNER_MARGIN,
+            ),
+        );
+        painter.rect_filled(fill_rect, 1.0, fill);
     }
 }

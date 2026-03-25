@@ -15,7 +15,6 @@ use crate::config::{
     AppConfig, NodeMatchRequirement, StripConfig, config_path, load_config, save_config,
 };
 use crate::pipewire_backend::{PipewireBackend, PwNodeCategory, PwStateExt};
-use crate::ui::apply_voicemeeter_like_theme;
 use types::{EditDialogState, Group, ResolvedNodeEntry, StripTarget};
 
 pub struct PipeMeeterApp {
@@ -190,20 +189,8 @@ impl PipeMeeterApp {
         }
     }
 
-    fn is_default_strip(&self, target: StripTarget) -> bool {
-        matches!(
-            target.category,
-            PwNodeCategory::PlaybackStream | PwNodeCategory::RecordingStream
-        ) && target.index == 0
-    }
-
     fn delete_target(&mut self, target: StripTarget) {
-        if target.index == 0
-            && matches!(
-                target.category,
-                PwNodeCategory::PlaybackStream | PwNodeCategory::RecordingStream
-            )
-        {
+        if target.is_default() {
             self.status = "cannot delete the default strip (index 0)".to_owned();
             return;
         }
@@ -273,9 +260,7 @@ impl PipeMeeterApp {
             })
             .collect::<Vec<_>>();
 
-        let fallback_only = self.is_default_strip(target);
-
-        let applied_requirements = if fallback_only {
+        let applied_requirements = if target.is_default() {
             Vec::new()
         } else {
             normalized_requirements
@@ -293,7 +278,6 @@ impl PipeMeeterApp {
 
 impl eframe::App for PipeMeeterApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        apply_voicemeeter_like_theme(ctx);
         self.apply_viewport_size(ctx);
         self.refresh_resolved_nodes();
         ctx.request_repaint();

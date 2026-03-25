@@ -17,6 +17,14 @@ impl StripTarget {
     pub(super) fn new(index: usize, category: PwNodeCategory) -> Self {
         Self { index, category }
     }
+
+    pub fn is_default(&self) -> bool {
+        self.index == 0
+            && matches!(
+                self.category,
+                PwNodeCategory::PlaybackStream | PwNodeCategory::RecordingStream
+            )
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -60,8 +60,6 @@ pub struct StripConfig {
     #[serde(default = "default_volume")]
     pub volume: f32,
     #[serde(default)]
-    pub placeholder_meter: f32,
-    #[serde(default)]
     pub routes_to_outputs: Vec<bool>,
 }
 
@@ -75,7 +73,6 @@ impl StripConfig {
             }],
             match_only_category: true,
             volume: 1.0,
-            placeholder_meter: 0.0,
             routes_to_outputs: Vec::new(),
         }
     }
@@ -113,7 +110,6 @@ impl AppConfig {
         }
 
         strip.volume = strip.volume.clamp(0.0, 1.0);
-        strip.placeholder_meter = strip.placeholder_meter.clamp(0.0, 1.0);
     }
 
     pub fn output_count(&self) -> usize {
