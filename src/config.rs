@@ -61,6 +61,8 @@ pub struct StripConfig {
     pub volume: f32,
     #[serde(default)]
     pub routes_to_outputs: Vec<bool>,
+    #[serde(skip)]
+    pub resolved_nodes: Vec<u32>,
 }
 
 impl StripConfig {
@@ -74,6 +76,7 @@ impl StripConfig {
             match_only_category: true,
             volume: 1.0,
             routes_to_outputs: Vec::new(),
+            resolved_nodes: Vec::new(),
         }
     }
     pub fn with_routes(name: String, output_count: usize) -> Self {

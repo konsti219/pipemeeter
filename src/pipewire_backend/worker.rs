@@ -1,275 +1,10 @@
 use super::*;
-use crate::config::{AppConfig, NodeMatchProperty, NodeMatchRequirement, StripConfig};
-use glob::Pattern;
+use crate::config::AppConfig;
+use crate::volume::slider_to_pipewire_linear;
 use std::cell::Cell;
 use std::collections::HashSet;
 
-#[derive(Clone, Copy)]
-struct ResolvedSetRef<'a> {
-    physical_inputs: &'a [Vec<u32>],
-    virtual_inputs: &'a [Vec<u32>],
-    physical_outputs: &'a [Vec<u32>],
-    virtual_outputs: &'a [Vec<u32>],
-}
-
-struct ResolvedSet {
-    physical_inputs: Vec<Vec<u32>>,
-    virtual_inputs: Vec<Vec<u32>>,
-    physical_outputs: Vec<Vec<u32>>,
-    virtual_outputs: Vec<Vec<u32>>,
-}
-
-#[derive(Clone, Copy)]
-enum ResolvedGroup {
-    PhysicalInput,
-    VirtualInput,
-    PhysicalOutput,
-    VirtualOutput,
-}
-
-fn virtual_input_combined_name(index: usize) -> String {
-    format!("{VIRTUAL_DEVICE_PREFIX}vin-{}", index + 1)
-}
-
-fn virtual_output_combined_name(index: usize) -> String {
-    format!("{VIRTUAL_DEVICE_PREFIX}vout-{}", index + 1)
-}
-
-fn human_slider_to_pipewire_linear(human_slider: f32) -> f32 {
-    let clamped = human_slider.clamp(0.0, 1.0);
-    clamped * clamped * clamped
-}
-
-fn managed_virtual_strip_names(config: &AppConfig) -> Vec<String> {
-    let mut names = Vec::new();
-
-    for i in 0..config.virtual_inputs.len() {
-        names.push(virtual_input_combined_name(i));
-    }
-
-    for i in 0..config.virtual_outputs.len() {
-        names.push(virtual_output_combined_name(i));
-    }
-
-    names
-}
-
-fn managed_node_id(state: &PwState, managed_name: &str) -> Option<u32> {
-    state.values().find_map(|obj| {
-        let PwObject::Node(node) = obj else {
-            return None;
-        };
-
-        if node.name == managed_name {
-            Some(node.id)
-        } else {
-            None
-        }
-    })
-}
-
-fn node_match_value<'a>(node: &'a PwNode, match_property: NodeMatchProperty) -> Option<&'a str> {
-    let val = match match_property {
-        NodeMatchProperty::Name => Some(node.name.as_str()),
-        NodeMatchProperty::Description => node.description.as_deref(),
-        NodeMatchProperty::MediaName => node.media_name.as_deref(),
-        NodeMatchProperty::ProcessBinary => node.process_binary.as_deref(),
-    };
-    val.map(str::trim).filter(|value| !value.is_empty())
-}
-
-fn requirement_matches_node(node: &PwNode, requirement: &NodeMatchRequirement) -> bool {
-    let value = match node_match_value(node, requirement.match_property) {
-        Some(value) => value,
-        None => return false,
-    };
-
-    let pattern = requirement.pattern.trim();
-    if pattern.is_empty() {
-        return false;
-    }
-
-    match Pattern::new(pattern) {
-        Ok(glob_pattern) => glob_pattern.matches(value),
-        Err(_) => false,
-    }
-}
-
-fn resolve_physical_ids(
-    assigned_nodes: &mut HashSet<u32>,
-    nodes: &[&PwNode],
-    strips: &[StripConfig],
-    category: PwNodeCategory,
-) -> Vec<Vec<u32>> {
-    let mut out = vec![Vec::new(); strips.len()];
-
-    for (index, strip) in strips.iter().enumerate() {
-        let requirements = strip.requirements.as_slice();
-        if requirements.is_empty() {
-            continue;
-        }
-
-        let mut candidates = nodes
-            .iter()
-            .copied()
-            .filter(|node| !assigned_nodes.contains(&node.id))
-            .filter(|node| {
-                requirements
-                    .iter()
-                    .all(|requirement| requirement_matches_node(node, requirement))
-            });
-
-        if let Some(node) = candidates.find(|node| node.category == category) {
-            assigned_nodes.insert(node.id);
-            out[index].push(node.id);
-            continue;
-        }
-
-        if strip.match_only_category {
-            continue;
-        }
-
-        if let Some(node) = candidates.next() {
-            assigned_nodes.insert(node.id);
-            out[index].push(node.id);
-        }
-    }
-
-    out
-}
-
-fn resolve_virtual_ids(
-    assigned_nodes: &mut HashSet<u32>,
-    nodes: &[&PwNode],
-    strips: &[StripConfig],
-    category: PwNodeCategory,
-) -> Vec<Vec<u32>> {
-    let mut out = vec![Vec::new(); strips.len()];
-
-    for (index, strip) in strips
-        .iter()
-        .enumerate()
-        .filter(|(_, strip)| !strip.requirements.is_empty())
-    {
-        let ids = nodes
-            .iter()
-            .copied()
-            .filter(|node| !assigned_nodes.contains(&node.id))
-            .filter(|node| {
-                strip
-                    .requirements
-                    .iter()
-                    .all(|requirement| requirement_matches_node(node, requirement))
-            })
-            .filter(|node| !strip.match_only_category || node.category == category)
-            .map(|node| node.id)
-            .collect::<Vec<_>>();
-
-        for id in &ids {
-            assigned_nodes.insert(*id);
-        }
-
-        out[index] = ids;
-    }
-
-    for (index, _strip) in strips
-        .iter()
-        .enumerate()
-        .filter(|(_, strip)| strip.requirements.is_empty())
-    {
-        let ids = nodes
-            .iter()
-            .copied()
-            .filter(|node| !assigned_nodes.contains(&node.id))
-            .filter(|node| node.category == category)
-            .map(|node| node.id)
-            .collect::<Vec<_>>();
-
-        for id in &ids {
-            assigned_nodes.insert(*id);
-        }
-
-        out[index] = ids;
-    }
-
-    out
-}
-
-fn resolve_nodes_for_config(config: &AppConfig, state: &PwState) -> ResolvedSet {
-    let mut nodes = state
-        .nodes()
-        .filter(|node| !node.category.is_pipemeeter())
-        .collect::<Vec<_>>();
-    nodes.sort_by_key(|node| node.id);
-
-    let mut assigned_node_ids = HashSet::new();
-
-    let physical_inputs = resolve_physical_ids(
-        &mut assigned_node_ids,
-        &nodes,
-        &config.physical_inputs,
-        PwNodeCategory::InputDevice,
-    );
-
-    let physical_outputs = resolve_physical_ids(
-        &mut assigned_node_ids,
-        &nodes,
-        &config.physical_outputs,
-        PwNodeCategory::OutputDevice,
-    );
-
-    let virtual_outputs = resolve_virtual_ids(
-        &mut assigned_node_ids,
-        &nodes,
-        &config.virtual_outputs,
-        PwNodeCategory::RecordingStream,
-    );
-
-    let virtual_inputs = resolve_virtual_ids(
-        &mut assigned_node_ids,
-        &nodes,
-        &config.virtual_inputs,
-        PwNodeCategory::PlaybackStream,
-    );
-
-    ResolvedSet {
-        physical_inputs,
-        virtual_inputs,
-        physical_outputs,
-        virtual_outputs,
-    }
-}
-
-fn resolved_ids_for(resolved: ResolvedSetRef<'_>, group: ResolvedGroup, index: usize) -> Vec<u32> {
-    match group {
-        ResolvedGroup::PhysicalInput => resolved
-            .physical_inputs
-            .get(index)
-            .cloned()
-            .unwrap_or_default(),
-        ResolvedGroup::VirtualInput => resolved
-            .virtual_inputs
-            .get(index)
-            .cloned()
-            .unwrap_or_default(),
-        ResolvedGroup::PhysicalOutput => resolved
-            .physical_outputs
-            .get(index)
-            .cloned()
-            .unwrap_or_default(),
-        ResolvedGroup::VirtualOutput => resolved
-            .virtual_outputs
-            .get(index)
-            .cloned()
-            .unwrap_or_default(),
-    }
-}
-
-fn meter_target_node_names(
-    config: &AppConfig,
-    resolved: ResolvedSetRef<'_>,
-    state: &PwState,
-) -> Vec<String> {
+fn meter_target_node_names(config: &AppConfig, state: &PwState) -> Vec<String> {
     let id_to_name = state
         .values()
         .filter_map(|obj| {
@@ -286,17 +21,17 @@ fn meter_target_node_names(
         names.insert(name);
     }
 
-    for index in 0..config.physical_inputs.len() {
-        for node_id in resolved_ids_for(resolved, ResolvedGroup::PhysicalInput, index) {
-            if let Some(name) = id_to_name.get(&node_id) {
+    for strip in &config.physical_inputs {
+        for node_id in &strip.resolved_nodes {
+            if let Some(name) = id_to_name.get(node_id) {
                 names.insert(name.clone());
             }
         }
     }
 
-    for index in 0..config.physical_outputs.len() {
-        for node_id in resolved_ids_for(resolved, ResolvedGroup::PhysicalOutput, index) {
-            if let Some(name) = id_to_name.get(&node_id) {
+    for strip in &config.physical_outputs {
+        for node_id in &strip.resolved_nodes {
+            if let Some(name) = id_to_name.get(node_id) {
                 names.insert(name.clone());
             }
         }
@@ -307,12 +42,15 @@ fn meter_target_node_names(
 
 fn output_target_nodes_for_route(
     config: &AppConfig,
-    resolved: ResolvedSetRef<'_>,
     route_index: usize,
     virtual_output_combined_ids: &[Option<u32>],
 ) -> Vec<u32> {
     if route_index < config.physical_outputs.len() {
-        resolved_ids_for(resolved, ResolvedGroup::PhysicalOutput, route_index)
+        config
+            .physical_outputs
+            .get(route_index)
+            .map(|strip| strip.resolved_nodes.clone())
+            .unwrap_or_default()
     } else {
         let virtual_index = route_index - config.physical_outputs.len();
         virtual_output_combined_ids
@@ -324,11 +62,7 @@ fn output_target_nodes_for_route(
     }
 }
 
-fn desired_routing_links(
-    config: &AppConfig,
-    resolved: ResolvedSetRef<'_>,
-    state: &PwState,
-) -> Vec<DesiredNodeLink> {
+fn desired_routing_links(config: &AppConfig, state: &PwState) -> Vec<DesiredNodeLink> {
     let virtual_input_combined_ids = (0..config.virtual_inputs.len())
         .map(|index| managed_node_id(state, &virtual_input_combined_name(index)))
         .collect::<Vec<_>>();
@@ -343,30 +77,31 @@ fn desired_routing_links(
             continue;
         };
 
-        for source_node_id in resolved_ids_for(resolved, ResolvedGroup::VirtualInput, index) {
+        for source_node_id in config
+            .virtual_inputs
+            .get(index)
+            .map(|strip| strip.resolved_nodes.as_slice())
+            .unwrap_or_default()
+        {
             desired.insert(DesiredNodeLink {
-                output_node: source_node_id,
+                output_node: *source_node_id,
                 input_node: *combined_node_id,
             });
         }
     }
 
-    for (index, strip) in config.physical_inputs.iter().enumerate() {
-        let source_nodes = resolved_ids_for(resolved, ResolvedGroup::PhysicalInput, index);
+    for strip in &config.physical_inputs {
+        let source_nodes = strip.resolved_nodes.as_slice();
 
         for (route_index, enabled) in strip.routes_to_outputs.iter().copied().enumerate() {
             if !enabled {
                 continue;
             }
 
-            let target_nodes = output_target_nodes_for_route(
-                config,
-                resolved,
-                route_index,
-                &virtual_output_combined_ids,
-            );
+            let target_nodes =
+                output_target_nodes_for_route(config, route_index, &virtual_output_combined_ids);
 
-            for output_node in &source_nodes {
+            for output_node in source_nodes {
                 for input_node in &target_nodes {
                     if output_node == input_node {
                         continue;
@@ -391,12 +126,8 @@ fn desired_routing_links(
                 continue;
             }
 
-            let target_nodes = output_target_nodes_for_route(
-                config,
-                resolved,
-                route_index,
-                &virtual_output_combined_ids,
-            );
+            let target_nodes =
+                output_target_nodes_for_route(config, route_index, &virtual_output_combined_ids);
             for input_node in target_nodes {
                 if source_node == input_node {
                     continue;
@@ -415,14 +146,19 @@ fn desired_routing_links(
             continue;
         };
 
-        for sink_node_id in resolved_ids_for(resolved, ResolvedGroup::VirtualOutput, index) {
-            if sink_node_id == *combined_node_id {
+        for sink_node_id in config
+            .virtual_outputs
+            .get(index)
+            .map(|strip| strip.resolved_nodes.as_slice())
+            .unwrap_or_default()
+        {
+            if *sink_node_id == *combined_node_id {
                 continue;
             }
 
             desired.insert(DesiredNodeLink {
                 output_node: *combined_node_id,
-                input_node: sink_node_id,
+                input_node: *sink_node_id,
             });
         }
     }
@@ -447,7 +183,7 @@ fn sync_virtual_input_combined_volumes(
             .get(index)
             .map(|strip| strip.volume)
             .unwrap_or(1.0);
-        let desired_linear = human_slider_to_pipewire_linear(slider);
+        let desired_linear = slider_to_pipewire_linear(slider);
 
         let should_update = match state.get(&combined_node_id) {
             Some(PwObject::Node(node)) => {
@@ -503,9 +239,11 @@ fn reconcile_routing_state(state: &BackendState) -> Result<()> {
 
     info!("reconciling routing state");
 
-    let Some(config) = state.routing_config.borrow().clone() else {
-        return Ok(());
-    };
+    // Always lock config before objects to avoid lock-order inversion.
+    let mut config = state.config.lock().unwrap();
+    let pw_state = state.objects.lock().unwrap().clone();
+
+    resolve_nodes(&mut config, &pw_state);
 
     sync_managed_virtual_devices_impl(
         &state.core,
@@ -513,15 +251,6 @@ fn reconcile_routing_state(state: &BackendState) -> Result<()> {
         &state.objects,
         &managed_virtual_strip_names(&config),
     )?;
-
-    let pw_state = state.objects.lock().unwrap().clone();
-    let resolved = resolve_nodes_for_config(&config, &pw_state);
-    let resolved_ref = ResolvedSetRef {
-        physical_inputs: &resolved.physical_inputs,
-        virtual_inputs: &resolved.virtual_inputs,
-        physical_outputs: &resolved.physical_outputs,
-        virtual_outputs: &resolved.virtual_outputs,
-    };
 
     if !all_nodes_have_known_ports(&pw_state) {
         info!("routing reconcile deferred because not all node ports are known yet");
@@ -531,12 +260,12 @@ fn reconcile_routing_state(state: &BackendState) -> Result<()> {
     state.meter_manager.borrow_mut().sync_virtual_nodes(
         &state.core,
         &state.objects,
-        &meter_target_node_names(&config, resolved_ref, &pw_state),
+        &meter_target_node_names(&config, &pw_state),
     )?;
 
     sync_virtual_input_combined_volumes(&state.objects, &state.proxies, &config, &pw_state)?;
 
-    let desired_links = desired_routing_links(&config, resolved_ref, &pw_state);
+    let desired_links = desired_routing_links(&config, &pw_state);
     sync_routing_impl(&state.core, &state.registry, &state.objects, &desired_links)?;
 
     Ok(())
@@ -568,10 +297,10 @@ struct BackendState {
     core: pw::core::CoreRc,
     registry: pw::registry::RegistryRc,
 
-    routing_config: Rc<RefCell<Option<AppConfig>>>,
+    config: Arc<Mutex<AppConfig>>,
+    objects: Arc<Mutex<PwState>>,
     proxies: Rc<RefCell<PwProxies>>,
     meter_manager: Rc<RefCell<MeterManager>>,
-    objects: Arc<Mutex<PwState>>,
 
     cmd_tx: CmdSender,
     initialized: Rc<Cell<bool>>,
@@ -589,6 +318,7 @@ impl BackendState {
 }
 
 pub fn pipewire_worker(
+    config: Arc<Mutex<AppConfig>>,
     objects: Arc<Mutex<PwState>>,
     meters: Arc<Mutex<HashMap<u32, [f32; 2]>>>,
     cmd_tx: pw::channel::Sender<BackendCommand>,
@@ -615,7 +345,7 @@ pub fn pipewire_worker(
             mainloop,
             core,
             registry,
-            routing_config: Rc::new(RefCell::new(None)),
+            config,
             proxies: Rc::new(RefCell::new(PwProxies::new())),
             meter_manager: Rc::new(RefCell::new(MeterManager::new(meters))),
             objects,
@@ -818,30 +548,22 @@ pub fn pipewire_worker(
         // This receiver is attached to PipeWire's loop and wakes it through an internal pipe,
         // so frontend commands are processed even when no PipeWire graph events occur.
         let _cmd_source = cmd_rx.attach(state.mainloop.loop_(), move |cmd| match cmd {
-            BackendCommand::SetRoutingConfig { config, reply } => {
-                *state_cmd.routing_config.as_ref().borrow_mut() = Some(config);
-
+            BackendCommand::UpdateRouting => {
                 // We cannot send a message to the channel from teh listener because
                 // it will deadlock the channel, so just set the timer directly here.
                 timer_handle.with_handle(|handle| {
                     handle.update_timer(Some(Duration::from_millis(10)), None);
                 });
-
-                send_reply(reply, Ok(()));
             }
-            BackendCommand::SetNodeVolume {
-                node_id,
-                volume,
-                reply,
-            } => {
-                send_reply(
-                    reply,
-                    set_node_volume_impl(&state_cmd.objects, &state_cmd.proxies, node_id, volume),
-                );
+            BackendCommand::SetNodeVolume { node_id, volume } => {
+                if let Err(err) =
+                    set_node_volume_impl(&state_cmd.objects, &state_cmd.proxies, node_id, volume)
+                {
+                    error!("failed to set node volume: {err}");
+                }
             }
             BackendCommand::Shutdown { reply } => {
                 state_cmd.shutdown.set(true);
-                *state_cmd.routing_config.as_ref().borrow_mut() = None;
                 state_cmd.meter_manager.as_ref().borrow_mut().clear();
                 if let Err(err) =
                     remove_managed_virtual_devices_impl(&state_cmd.registry, &state_cmd.objects)

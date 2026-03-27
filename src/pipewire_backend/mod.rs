@@ -23,6 +23,8 @@ mod meter;
 use meter::*;
 mod node;
 pub use node::*;
+mod node_resolution;
+use node_resolution::*;
 mod pod;
 use pod::*;
 mod port;
@@ -38,7 +40,7 @@ use worker::*;
 type PwProxies = HashMap<u32, PwProxy>;
 pub type PwState = HashMap<u32, PwObject>;
 
-const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const COMMAND_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone)]
 pub struct PwClient {
@@ -120,14 +122,10 @@ fn create_mainloop() -> Result<(pw::main_loop::MainLoopRc, pw::core::CoreRc)> {
 
 #[derive(Debug)]
 enum BackendCommand {
-    SetRoutingConfig {
-        config: AppConfig,
-        reply: mpsc::Sender<Result<()>>,
-    },
+    UpdateRouting,
     SetNodeVolume {
         node_id: u32,
         volume: f32,
-        reply: mpsc::Sender<Result<()>>,
     },
     Shutdown {
         reply: mpsc::Sender<Result<()>>,
@@ -151,13 +149,14 @@ pub struct PipewireBackend {
 }
 
 impl PipewireBackend {
-    pub fn new() -> Result<Self> {
+    pub fn new(config: Arc<Mutex<AppConfig>>) -> Result<Self> {
         let objects = Arc::new(Mutex::new(HashMap::new()));
         let meters = Arc::new(Mutex::new(HashMap::<u32, [f32; 2]>::new()));
         let (command_tx, command_rx) = pw::channel::channel();
         let (ready_tx, ready_rx) = mpsc::channel();
 
         let handle = pipewire_worker(
+            config,
             objects.clone(),
             meters.clone(),
             command_tx.clone(),
@@ -180,31 +179,16 @@ impl PipewireBackend {
         })
     }
 
-    fn request<F>(&self, build: F) -> Result<()>
-    where
-        F: FnOnce(mpsc::Sender<Result<()>>) -> BackendCommand,
-    {
-        let (reply_tx, reply_rx) = mpsc::channel();
-        self.command_tx
-            .send(build(reply_tx))
-            .map_err(|_| anyhow::anyhow!("failed to send command to PipeWire worker"))?;
-
-        match reply_rx.recv_timeout(COMMAND_TIMEOUT) {
-            Ok(res) => res,
-            Err(err) => bail!("timed out waiting for PipeWire command completion: {err}"),
-        }
-    }
-
     pub fn set_node_volume(&self, node_id: u32, volume: f32) -> Result<()> {
-        self.request(|reply| BackendCommand::SetNodeVolume {
-            node_id,
-            volume,
-            reply,
-        })
+        self.command_tx
+            .send(BackendCommand::SetNodeVolume { node_id, volume })
+            .map_err(|_| anyhow::anyhow!("failed to send command to PipeWire worker"))
     }
 
-    pub fn set_routing_config(&self, config: AppConfig) -> Result<()> {
-        self.request(|reply| BackendCommand::SetRoutingConfig { config, reply })
+    pub fn update_routing(&self) -> Result<()> {
+        self.command_tx
+            .send(BackendCommand::UpdateRouting)
+            .map_err(|_| anyhow::anyhow!("failed to send command to PipeWire worker"))
     }
 
     pub fn node_peak_meter(&self, node_id: u32) -> [f32; 2] {
@@ -235,6 +219,14 @@ impl Drop for PipewireBackend {
             }
         }
     }
+}
+
+pub fn virtual_input_combined_name(index: usize) -> String {
+    format!("{VIRTUAL_DEVICE_PREFIX}vin-{}", index + 1)
+}
+
+pub fn virtual_output_combined_name(index: usize) -> String {
+    format!("{VIRTUAL_DEVICE_PREFIX}vout-{}", index + 1)
 }
 
 pub trait PwStateExt {

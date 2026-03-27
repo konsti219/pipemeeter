@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use eframe::egui;
 use log::error;
@@ -9,20 +9,16 @@ mod node_resolution;
 mod routing;
 mod strip_ui;
 mod types;
-mod volume;
 
-use crate::config::{
-    AppConfig, NodeMatchRequirement, StripConfig, config_path, load_config, save_config,
-};
+use crate::config::{AppConfig, NodeMatchRequirement, config_path, load_config, save_config};
 use crate::pipewire_backend::{PipewireBackend, PwNodeCategory, PwStateExt};
-use types::{EditDialogState, Group, ResolvedNodeEntry, StripTarget};
+use types::{EditDialogState, Group, StripTarget};
 
 pub struct PipeMeeterApp {
     config_path: PathBuf,
-    config: AppConfig,
+    config: Arc<Mutex<AppConfig>>,
 
     backend: PipewireBackend,
-    resolved_nodes: HashMap<StripTarget, Vec<ResolvedNodeEntry>>,
 
     status: String,
     edit_dialog: Option<EditDialogState>,
@@ -50,15 +46,14 @@ impl PipeMeeterApp {
             }
         };
         config.normalize();
+        let config = Arc::new(Mutex::new(config));
 
-        let backend = PipewireBackend::new().unwrap();
-        backend.set_routing_config(config.clone()).unwrap();
+        let backend = PipewireBackend::new(config.clone()).unwrap();
 
         Self {
             config_path,
             config,
             backend,
-            resolved_nodes: HashMap::new(),
             status: "Ready".to_owned(),
             edit_dialog: None,
             last_viewport_size: None,
@@ -68,10 +63,12 @@ impl PipeMeeterApp {
     pub fn desired_viewport_size(&self) -> egui::Vec2 {
         const GAP: f32 = 22.0;
 
-        let input_strips = self.config.physical_inputs.len().max(1) as f32
-            + self.config.virtual_inputs.len().max(1) as f32;
-        let output_strips = (self.config.physical_outputs.len() as f32).max(1.35)
-            + (self.config.virtual_outputs.len() as f32).max(1.35);
+        let config = self.config.lock().unwrap();
+
+        let input_strips =
+            config.physical_inputs.len().max(1) as f32 + config.virtual_inputs.len().max(1) as f32;
+        let output_strips = (config.physical_outputs.len() as f32).max(1.35)
+            + (config.virtual_outputs.len() as f32).max(1.35);
         let width = (input_strips * 140.0 + output_strips * 90.0)
             + GAP * (input_strips + output_strips - 1.0);
 
@@ -93,11 +90,19 @@ impl PipeMeeterApp {
     }
 
     fn persist_config(&mut self) {
-        self.config.normalize();
-        self.backend
-            .set_routing_config(self.config.clone())
-            .unwrap();
-        match save_config(&self.config_path, &self.config) {
+        let snapshot = {
+            let mut config = self.config.lock().unwrap();
+            config.normalize();
+            config.clone()
+        };
+
+        if let Err(err) = self.backend.update_routing() {
+            self.status = format!("failed to update backend routing: {err}");
+            error!("{}", self.status);
+            return;
+        }
+
+        match save_config(&self.config_path, &snapshot) {
             Ok(()) => {
                 self.status = format!("saved setup to {}", self.config_path.display());
             }
@@ -122,63 +127,16 @@ impl PipeMeeterApp {
         }
     }
 
-    fn add_input_strip(&mut self, group: Group) {
-        let output_count = self.config.output_count();
-        match group {
-            Group::Physical => {
-                let name = Self::default_input_name(group, self.config.physical_inputs.len());
-                self.config
-                    .physical_inputs
-                    .push(StripConfig::with_routes(name, output_count));
-            }
-            Group::Virtual => {
-                let name = Self::default_input_name(group, self.config.virtual_inputs.len());
-                self.config
-                    .virtual_inputs
-                    .push(StripConfig::with_routes(name, output_count));
-            }
-        }
-        self.persist_config();
-    }
-
-    fn add_output_strip(&mut self, group: Group) {
-        match group {
-            Group::Physical => {
-                let name = Self::default_output_name(group, self.config.physical_outputs.len());
-                self.config.physical_outputs.push(StripConfig::new(name));
-            }
-            Group::Virtual => {
-                let name = Self::default_output_name(group, self.config.virtual_outputs.len());
-                self.config.virtual_outputs.push(StripConfig::new(name));
-            }
-        }
-
-        self.config.normalize();
-        self.persist_config();
-    }
-
-    fn strip_ref(&self, target: StripTarget) -> Option<&StripConfig> {
-        match target.category {
-            PwNodeCategory::InputDevice => self.config.physical_inputs.get(target.index),
-            PwNodeCategory::PlaybackStream => self.config.virtual_inputs.get(target.index),
-            PwNodeCategory::OutputDevice => self.config.physical_outputs.get(target.index),
-            PwNodeCategory::RecordingStream => self.config.virtual_outputs.get(target.index),
+    fn open_edit_dialog_from_config(&mut self, target: StripTarget, config: &AppConfig) {
+        let strip = match target.category {
+            PwNodeCategory::InputDevice => config.physical_inputs.get(target.index),
+            PwNodeCategory::PlaybackStream => config.virtual_inputs.get(target.index),
+            PwNodeCategory::OutputDevice => config.physical_outputs.get(target.index),
+            PwNodeCategory::RecordingStream => config.virtual_outputs.get(target.index),
             _ => None,
-        }
-    }
+        };
 
-    fn strip_mut(&mut self, target: StripTarget) -> Option<&mut StripConfig> {
-        match target.category {
-            PwNodeCategory::InputDevice => self.config.physical_inputs.get_mut(target.index),
-            PwNodeCategory::PlaybackStream => self.config.virtual_inputs.get_mut(target.index),
-            PwNodeCategory::OutputDevice => self.config.physical_outputs.get_mut(target.index),
-            PwNodeCategory::RecordingStream => self.config.virtual_outputs.get_mut(target.index),
-            _ => None,
-        }
-    }
-
-    fn open_edit_dialog(&mut self, target: StripTarget) {
-        if let Some(strip) = self.strip_ref(target) {
+        if let Some(strip) = strip {
             self.edit_dialog = Some(EditDialogState {
                 target,
                 draft_strip_name: strip.name.clone(),
@@ -195,32 +153,35 @@ impl PipeMeeterApp {
             return;
         }
 
+        let mut config = self.config.lock().unwrap();
+
         match target.category {
             PwNodeCategory::InputDevice => {
-                self.config.physical_inputs.remove(target.index);
+                config.physical_inputs.remove(target.index);
             }
             PwNodeCategory::PlaybackStream => {
-                self.config.virtual_inputs.remove(target.index);
+                config.virtual_inputs.remove(target.index);
             }
             PwNodeCategory::OutputDevice | PwNodeCategory::RecordingStream => {
                 let output_idx = match target.category {
                     PwNodeCategory::OutputDevice => {
-                        self.config.physical_outputs.remove(target.index);
+                        config.physical_outputs.remove(target.index);
                         target.index
                     }
                     PwNodeCategory::RecordingStream => {
-                        self.config.virtual_outputs.remove(target.index);
-                        self.config.physical_outputs.len() + target.index
+                        config.virtual_outputs.remove(target.index);
+                        config.physical_outputs.len() + target.index
                     }
                     _ => return,
                 };
 
-                for input in self
-                    .config
-                    .physical_inputs
-                    .iter_mut()
-                    .chain(self.config.virtual_inputs.iter_mut())
-                {
+                for input in &mut config.physical_inputs {
+                    if output_idx < input.routes_to_outputs.len() {
+                        input.routes_to_outputs.remove(output_idx);
+                    }
+                }
+
+                for input in &mut config.virtual_inputs {
                     if output_idx < input.routes_to_outputs.len() {
                         input.routes_to_outputs.remove(output_idx);
                     }
@@ -228,6 +189,8 @@ impl PipeMeeterApp {
             }
             _ => {}
         }
+
+        drop(config);
 
         self.persist_config();
     }
@@ -266,11 +229,22 @@ impl PipeMeeterApp {
             normalized_requirements
         };
 
-        if let Some(strip) = self.strip_mut(target) {
+        let mut config = self.config.lock().unwrap();
+        let maybe_strip = match target.category {
+            PwNodeCategory::InputDevice => config.physical_inputs.get_mut(target.index),
+            PwNodeCategory::PlaybackStream => config.virtual_inputs.get_mut(target.index),
+            PwNodeCategory::OutputDevice => config.physical_outputs.get_mut(target.index),
+            PwNodeCategory::RecordingStream => config.virtual_outputs.get_mut(target.index),
+            _ => None,
+        };
+
+        if let Some(strip) = maybe_strip {
             strip.name = trimmed_strip_name.to_owned();
             strip.requirements = applied_requirements;
             strip.match_only_category = match_only_category;
         }
+
+        drop(config);
 
         self.persist_config();
     }
@@ -279,11 +253,19 @@ impl PipeMeeterApp {
 impl eframe::App for PipeMeeterApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.apply_viewport_size(ctx);
-        self.refresh_resolved_nodes();
         ctx.request_repaint();
 
         let mut dirty = false;
-        let output_labels = self.config.output_labels();
+        let objects_snapshot = {
+            let objects = self.backend.objects.lock().unwrap();
+            objects.clone()
+        };
+
+        // Keep lock order consistent: config first, then objects when needed.
+        let config_handle = self.config.clone();
+        let mut config = config_handle.lock().unwrap();
+        self.refresh_resolved_nodes_with_state(&mut config, &objects_snapshot);
+        let output_labels = config.output_labels();
 
         egui::TopBottomPanel::bottom("status_footer")
             .resizable(false)
@@ -302,6 +284,8 @@ impl eframe::App for PipeMeeterApp {
                         "Physical In",
                         Group::Physical,
                         &output_labels,
+                        &mut config,
+                        &objects_snapshot,
                         &mut dirty,
                     );
                     ui.separator();
@@ -310,27 +294,40 @@ impl eframe::App for PipeMeeterApp {
                         "Virtual In",
                         Group::Virtual,
                         &output_labels,
+                        &mut config,
+                        &objects_snapshot,
                         &mut dirty,
                     );
 
                     ui.separator();
 
-                    self.draw_output_subgroup(ui, "Physical Out", Group::Physical, &mut dirty);
+                    self.draw_output_subgroup(
+                        ui,
+                        "Physical Out",
+                        Group::Physical,
+                        &mut config,
+                        &objects_snapshot,
+                        &mut dirty,
+                    );
                     ui.separator();
-                    self.draw_output_subgroup(ui, "Virtual Out", Group::Virtual, &mut dirty);
+                    self.draw_output_subgroup(
+                        ui,
+                        "Virtual Out",
+                        Group::Virtual,
+                        &mut config,
+                        &objects_snapshot,
+                        &mut dirty,
+                    );
                 });
             });
 
             ui.add_space(5.0);
             ui.separator();
 
-            let mut node_lines = {
-                let objects = self.backend.objects.lock().unwrap();
-                objects
-                    .nodes()
-                    .map(|node| format!("{node:?}"))
-                    .collect::<Vec<_>>()
-            };
+            let mut node_lines = objects_snapshot
+                .nodes()
+                .map(|node| format!("{node:?}"))
+                .collect::<Vec<_>>();
             node_lines.sort();
 
             ui.label(egui::RichText::new(format!("Current Nodes ({})", node_lines.len())).strong());
@@ -350,6 +347,8 @@ impl eframe::App for PipeMeeterApp {
                     }
                 });
         });
+
+        drop(config);
 
         if dirty {
             self.persist_config();

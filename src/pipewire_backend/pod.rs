@@ -101,6 +101,7 @@ pub(super) fn route_descriptor_from_param(param: &Pod) -> Option<PwDeviceRoute> 
     let mut index = None;
     let mut direction = None;
     let mut device = None;
+    let mut volume = None;
 
     for prop in object.props() {
         let key = prop.key().0;
@@ -110,6 +111,18 @@ pub(super) fn route_descriptor_from_param(param: &Pod) -> Option<PwDeviceRoute> 
             direction = pod_u32_value(prop.value());
         } else if key == pw::spa::sys::SPA_PARAM_ROUTE_device {
             device = pod_u32_value(prop.value());
+        } else if key == pw::spa::sys::SPA_PARAM_ROUTE_props {
+            let Ok(props_object) = prop.value().as_object() else {
+                continue;
+            };
+
+            for props_prop in props_object.props() {
+                if props_prop.key().0 == pw::spa::sys::SPA_PROP_channelVolumes {
+                    if let Some(values) = pod_float_array(props_prop.value()) {
+                        volume = stereo_from_values(&values);
+                    }
+                }
+            }
         }
     }
 
@@ -117,6 +130,7 @@ pub(super) fn route_descriptor_from_param(param: &Pod) -> Option<PwDeviceRoute> 
         index: index?,
         direction: direction?,
         device: device.unwrap_or(0),
+        volume,
     })
 }
 

@@ -1,6 +1,10 @@
 use eframe::egui;
 
-use crate::pipewire_backend::PwNodeCategory;
+use crate::{
+    config::{AppConfig, StripConfig},
+    pipewire_backend::{PwNodeCategory, PwState},
+    volume::slider_to_pipewire_linear,
+};
 
 use super::{Group, PipeMeeterApp, StripTarget};
 
@@ -11,20 +15,24 @@ impl PipeMeeterApp {
         title: &str,
         group: Group,
         output_labels: &[String],
+        config: &mut AppConfig,
+        objects: &PwState,
         dirty: &mut bool,
     ) {
         let len = match group {
-            Group::Physical => self.config.physical_inputs.len(),
-            Group::Virtual => self.config.virtual_inputs.len(),
+            Group::Physical => config.physical_inputs.len(),
+            Group::Virtual => config.virtual_inputs.len(),
         };
 
         ui.vertical(|ui| {
             ui.set_width(162.0 * len.max(1) as f32 - 22.0);
+            let mut add_requested = false;
+            let mut open_dialog_target = None;
 
             ui.horizontal(|ui| {
                 ui.heading(title);
                 if ui.button("+ Add").clicked() {
-                    self.add_input_strip(group);
+                    add_requested = true;
                 }
             });
 
@@ -38,15 +46,18 @@ impl PipeMeeterApp {
 
                 for index in 0..len {
                     let target = StripTarget::new(index, category);
-                    let resolved_node_title = self.resolved_node_title(target);
-                    let resolved_meter_level = self.resolved_meter_level(target);
-                    let resolved_node_ids = self.resolved_node_ids(target);
+                    let resolved_node_title =
+                        Self::resolved_node_title_from_state(config, objects, target);
+                    let resolved_meter_level =
+                        self.resolved_meter_level_from_config(config, target);
                     let mut open_dialog = false;
                     let mut changed_volume = None;
 
-                    let strip = match group {
-                        Group::Physical => &mut self.config.physical_inputs[index],
-                        Group::Virtual => &mut self.config.virtual_inputs[index],
+                    let Some(strip) = (match group {
+                        Group::Physical => config.physical_inputs.get_mut(index),
+                        Group::Virtual => config.virtual_inputs.get_mut(index),
+                    }) else {
+                        continue;
                     };
 
                     ui.vertical(|ui| {
@@ -113,26 +124,48 @@ impl PipeMeeterApp {
                     }
 
                     if let Some(volume) = changed_volume {
-                        if category == PwNodeCategory::PlaybackStream {
-                            self.apply_virtual_input_slider_volume(index, volume);
+                        let linear = slider_to_pipewire_linear(volume);
+
+                        if group == Group::Virtual {
+                            if let Some(node_id) = self.virtual_input_node_id(index) {
+                                self.backend.set_node_volume(node_id, linear).unwrap();
+                            };
                         } else {
-                            for node_id in resolved_node_ids {
-                                let linear = super::volume::human_slider_to_pipewire_linear(volume);
-                                if let Err(err) = self.backend.set_node_volume(node_id, linear) {
-                                    self.status = format!(
-                                        "failed to set input volume for node #{}: {err}",
-                                        node_id
-                                    );
-                                }
+                            for node_id in &strip.resolved_nodes {
+                                self.backend.set_node_volume(*node_id, linear).unwrap();
                             }
                         }
                     }
 
                     if open_dialog {
-                        self.open_edit_dialog(target);
+                        open_dialog_target = Some(target);
                     }
                 }
             });
+
+            if add_requested {
+                let output_count = config.output_count();
+                let strip = match group {
+                    Group::Physical => {
+                        let name = Self::default_input_name(group, config.physical_inputs.len());
+                        StripConfig::with_routes(name, output_count)
+                    }
+                    Group::Virtual => {
+                        let name = Self::default_input_name(group, config.virtual_inputs.len());
+                        StripConfig::with_routes(name, output_count)
+                    }
+                };
+
+                match group {
+                    Group::Physical => config.physical_inputs.push(strip),
+                    Group::Virtual => config.virtual_inputs.push(strip),
+                }
+                *dirty = true;
+            }
+
+            if let Some(target) = open_dialog_target {
+                self.open_edit_dialog_from_config(target, config);
+            }
         });
     }
 
@@ -141,20 +174,24 @@ impl PipeMeeterApp {
         ui: &mut egui::Ui,
         title: &str,
         group: Group,
+        config: &mut AppConfig,
+        objects: &PwState,
         dirty: &mut bool,
     ) {
         let len = match group {
-            Group::Physical => self.config.physical_outputs.len(),
-            Group::Virtual => self.config.virtual_outputs.len(),
+            Group::Physical => config.physical_outputs.len(),
+            Group::Virtual => config.virtual_outputs.len(),
         };
 
         ui.vertical(|ui| {
             ui.set_width(112.0 * len.max(1) as f32 - 22.0);
+            let mut add_requested = false;
+            let mut open_dialog_target = None;
 
             ui.horizontal(|ui| {
                 ui.heading(title);
                 if ui.button("+ Add").clicked() {
-                    self.add_output_strip(group);
+                    add_requested = true;
                 }
             });
 
@@ -168,15 +205,18 @@ impl PipeMeeterApp {
 
                 for index in 0..len {
                     let target = StripTarget::new(index, category);
-                    let resolved_node_title = self.resolved_node_title(target);
-                    let resolved_meter_level = self.resolved_meter_level(target);
-                    let resolved_node_ids = self.resolved_node_ids(target);
+                    let resolved_node_title =
+                        Self::resolved_node_title_from_state(config, objects, target);
+                    let resolved_meter_level =
+                        self.resolved_meter_level_from_config(config, target);
                     let mut open_dialog = false;
                     let mut changed_volume = None;
 
-                    let strip = match group {
-                        Group::Physical => &mut self.config.physical_outputs[index],
-                        Group::Virtual => &mut self.config.virtual_outputs[index],
+                    let Some(strip) = (match group {
+                        Group::Physical => config.physical_outputs.get_mut(index),
+                        Group::Virtual => config.virtual_outputs.get_mut(index),
+                    }) else {
+                        continue;
                     };
 
                     ui.vertical(|ui| {
@@ -225,33 +265,42 @@ impl PipeMeeterApp {
                     }
 
                     if let Some(volume) = changed_volume {
-                        let linear = super::volume::human_slider_to_pipewire_linear(volume);
-                        if category == PwNodeCategory::RecordingStream {
-                            if let Some(node_id) = self.virtual_output_combined_node_id(index) {
-                                if let Err(err) = self.backend.set_node_volume(node_id, linear) {
-                                    self.status = format!(
-                                        "failed to set output volume for node #{}: {err}",
-                                        node_id
-                                    );
-                                }
+                        let linear = slider_to_pipewire_linear(volume);
+                        if group == Group::Virtual {
+                            if let Some(node_id) = self.virtual_output_node_id(index) {
+                                self.backend.set_node_volume(node_id, linear).unwrap();
                             }
                         } else {
-                            for node_id in resolved_node_ids {
-                                if let Err(err) = self.backend.set_node_volume(node_id, linear) {
-                                    self.status = format!(
-                                        "failed to set output volume for node #{}: {err}",
-                                        node_id
-                                    );
-                                }
+                            for node_id in &strip.resolved_nodes {
+                                self.backend.set_node_volume(*node_id, linear).unwrap()
                             }
                         }
                     }
 
                     if open_dialog {
-                        self.open_edit_dialog(target);
+                        open_dialog_target = Some(target);
                     }
                 }
             });
+
+            if add_requested {
+                match group {
+                    Group::Physical => {
+                        let name = Self::default_output_name(group, config.physical_outputs.len());
+                        config.physical_outputs.push(StripConfig::new(name));
+                    }
+                    Group::Virtual => {
+                        let name = Self::default_output_name(group, config.virtual_outputs.len());
+                        config.virtual_outputs.push(StripConfig::new(name));
+                    }
+                }
+                config.normalize();
+                *dirty = true;
+            }
+
+            if let Some(target) = open_dialog_target {
+                self.open_edit_dialog_from_config(target, config);
+            }
         });
     }
 }

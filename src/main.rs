@@ -6,6 +6,7 @@ use log::error;
 mod app;
 mod config;
 mod pipewire_backend;
+mod volume;
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))

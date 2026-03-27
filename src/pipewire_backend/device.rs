@@ -11,11 +11,12 @@ pub struct PwDevice {
     pub routes: Vec<PwDeviceRoute>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PwDeviceRoute {
     pub index: u32,
     pub direction: u32,
     pub device: u32,
+    pub volume: Option<[f32; 2]>,
 }
 
 pub(super) fn handle_device_global(
@@ -53,6 +54,18 @@ pub(super) fn handle_device_global(
                     *existing = route;
                 } else {
                     device.routes.push(route);
+                }
+            }
+
+            if let Some(volume) = route.volume {
+                for object in objects.values_mut() {
+                    let PwObject::Node(node) = object else {
+                        continue;
+                    };
+
+                    if node.device_id == Some(object_id) {
+                        node.volume = volume;
+                    }
                 }
             }
         })
