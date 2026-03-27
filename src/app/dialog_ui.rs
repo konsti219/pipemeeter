@@ -42,7 +42,7 @@ impl PipeMeeterApp {
     ) {
         egui::ScrollArea::vertical()
             .id_salt(id_salt)
-            .max_height(160.0)
+            .max_height(100.0)
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 if nodes.is_empty() {
@@ -120,6 +120,7 @@ impl PipeMeeterApp {
         egui::Window::new("Configure Strip")
             .collapsible(false)
             .resizable(false)
+            .max_height(350.0)
             .open(&mut is_open)
             .show(ctx, |ui| {
                 ui.label("Strip name");
