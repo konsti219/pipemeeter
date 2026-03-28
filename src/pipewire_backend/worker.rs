@@ -40,132 +40,6 @@ fn meter_target_node_names(config: &AppConfig, state: &PwState) -> Vec<String> {
     names.into_iter().collect()
 }
 
-fn output_target_nodes_for_route(
-    config: &AppConfig,
-    route_index: usize,
-    virtual_output_combined_ids: &[Option<u32>],
-) -> Vec<u32> {
-    if route_index < config.physical_outputs.len() {
-        config
-            .physical_outputs
-            .get(route_index)
-            .map(|strip| strip.resolved_nodes.clone())
-            .unwrap_or_default()
-    } else {
-        let virtual_index = route_index - config.physical_outputs.len();
-        virtual_output_combined_ids
-            .get(virtual_index)
-            .copied()
-            .flatten()
-            .into_iter()
-            .collect()
-    }
-}
-
-fn desired_routing_links(config: &AppConfig, state: &PwState) -> Vec<DesiredNodeLink> {
-    let virtual_input_combined_ids = (0..config.virtual_inputs.len())
-        .map(|index| managed_node_id(state, &virtual_input_combined_name(index)))
-        .collect::<Vec<_>>();
-    let virtual_output_combined_ids = (0..config.virtual_outputs.len())
-        .map(|index| managed_node_id(state, &virtual_output_combined_name(index)))
-        .collect::<Vec<_>>();
-
-    let mut desired = HashSet::new();
-
-    for (index, combined_node_id) in virtual_input_combined_ids.iter().enumerate() {
-        let Some(combined_node_id) = combined_node_id else {
-            continue;
-        };
-
-        for source_node_id in config
-            .virtual_inputs
-            .get(index)
-            .map(|strip| strip.resolved_nodes.as_slice())
-            .unwrap_or_default()
-        {
-            desired.insert(DesiredNodeLink {
-                output_node: *source_node_id,
-                input_node: *combined_node_id,
-            });
-        }
-    }
-
-    for strip in &config.physical_inputs {
-        let source_nodes = strip.resolved_nodes.as_slice();
-
-        for (route_index, enabled) in strip.routes_to_outputs.iter().copied().enumerate() {
-            if !enabled {
-                continue;
-            }
-
-            let target_nodes =
-                output_target_nodes_for_route(config, route_index, &virtual_output_combined_ids);
-
-            for output_node in source_nodes {
-                for input_node in &target_nodes {
-                    if output_node == input_node {
-                        continue;
-                    }
-
-                    desired.insert(DesiredNodeLink {
-                        output_node: *output_node,
-                        input_node: *input_node,
-                    });
-                }
-            }
-        }
-    }
-
-    for (index, strip) in config.virtual_inputs.iter().enumerate() {
-        let Some(source_node) = virtual_input_combined_ids.get(index).copied().flatten() else {
-            continue;
-        };
-
-        for (route_index, enabled) in strip.routes_to_outputs.iter().copied().enumerate() {
-            if !enabled {
-                continue;
-            }
-
-            let target_nodes =
-                output_target_nodes_for_route(config, route_index, &virtual_output_combined_ids);
-            for input_node in target_nodes {
-                if source_node == input_node {
-                    continue;
-                }
-
-                desired.insert(DesiredNodeLink {
-                    output_node: source_node,
-                    input_node,
-                });
-            }
-        }
-    }
-
-    for (index, combined_node_id) in virtual_output_combined_ids.iter().enumerate() {
-        let Some(combined_node_id) = combined_node_id else {
-            continue;
-        };
-
-        for sink_node_id in config
-            .virtual_outputs
-            .get(index)
-            .map(|strip| strip.resolved_nodes.as_slice())
-            .unwrap_or_default()
-        {
-            if *sink_node_id == *combined_node_id {
-                continue;
-            }
-
-            desired.insert(DesiredNodeLink {
-                output_node: *combined_node_id,
-                input_node: *sink_node_id,
-            });
-        }
-    }
-
-    desired.into_iter().collect()
-}
-
 fn sync_virtual_input_combined_volumes(
     objects: &Arc<Mutex<PwState>>,
     proxies: &Rc<RefCell<PwProxies>>,
@@ -199,37 +73,6 @@ fn sync_virtual_input_combined_volumes(
     }
 
     Ok(())
-}
-
-fn all_nodes_have_known_ports(state: &PwState) -> bool {
-    let mut known_port_counts: HashMap<u32, (u32, u32)> = HashMap::new();
-    for object in state.values() {
-        let PwObject::Port(port) = object else {
-            continue;
-        };
-
-        let entry = known_port_counts.entry(port.node_id).or_insert((0, 0));
-        match port.direction {
-            PortDirection::In => entry.0 += 1,
-            PortDirection::Out => entry.1 += 1,
-        }
-    }
-
-    for node in state.values().filter_map(|obj| {
-        let PwObject::Node(node) = obj else {
-            return None;
-        };
-        Some(node)
-    }) {
-        let (known_inputs, known_outputs) =
-            known_port_counts.get(&node.id).copied().unwrap_or((0, 0));
-
-        if known_inputs < node.input_ports || known_outputs < node.output_ports {
-            return false;
-        }
-    }
-
-    true
 }
 
 fn reconcile_routing_state(state: &BackendState) -> Result<()> {
@@ -509,10 +352,6 @@ pub fn pipewire_worker(
 
                 // TODO (?): maybe also rebuild on certain link changes
                 if rebuild {
-                    info!(
-                        "rebuilding routing state because new object was added: id={} type={}",
-                        global.id, global.type_
-                    );
                     state_add.set_rebuild_timer();
                 }
             })
@@ -526,10 +365,6 @@ pub fn pipewire_worker(
                         _ => PwNodeCategory::Other,
                     };
                     if !matches!(category, PwNodeCategory::Other) {
-                        info!(
-                            "rebuilding routing state because object was removed: id={} category={:?}",
-                            id, category
-                        );
                         state_remove.set_rebuild_timer();
                     }
                 } else {
