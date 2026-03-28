@@ -12,13 +12,11 @@ pub struct PwPort {
     pub category: PwNodeCategory,
     pub port_id: u32,
     pub name: String,
-    pub object_path: String,
     pub direction: PortDirection,
     pub format_dsp: Option<String>,
     pub audio_channel: Option<String>,
     pub media_type: PwMediaType,
     pub monitor: bool,
-    pub physical: Option<bool>,
 }
 
 pub(super) fn handle_port_global(
@@ -59,7 +57,6 @@ pub(super) fn handle_port_global(
     let node_id = props.get(&NODE_ID).unwrap().parse::<u32>().unwrap();
     let port_id = props.get(&PORT_ID).unwrap().parse::<u32>().unwrap();
     let name = props.get(&PORT_NAME).unwrap().to_owned();
-    let object_path = props.get(&OBJECT_PATH).unwrap().to_owned();
     let direction = match props.get(&PORT_DIRECTION).unwrap() {
         "in" => PortDirection::In,
         "out" => PortDirection::Out,
@@ -71,7 +68,6 @@ pub(super) fn handle_port_global(
         .get(&PORT_MONITOR)
         .map(|v| v == "true")
         .unwrap_or(false);
-    let physical = props.get(&PORT_PHYSICAL).map(|v| v == "true");
 
     let category = match objects.get(&node_id).unwrap() {
         PwObject::Node(node) => node.category,
@@ -85,13 +81,11 @@ pub(super) fn handle_port_global(
             category,
             port_id,
             name,
-            object_path,
             direction,
             format_dsp,
             audio_channel,
             media_type: PwMediaType::Unknown,
             monitor,
-            physical,
         }),
     );
     proxies

@@ -2,12 +2,8 @@ use super::*;
 
 #[derive(Debug, Clone)]
 pub struct PwDevice {
-    pub factory_id: u32,
-    pub client_id: u32,
-    pub device_api: String,
-    pub description: String,
     pub name: String,
-    pub media_class: String,
+    pub description: String,
     pub routes: Vec<PwDeviceRoute>,
 }
 
@@ -74,22 +70,14 @@ pub(super) fn handle_device_global(
     proxy.subscribe_params(&[ParamType::Route]);
     proxy.enum_params(1, Some(ParamType::Route), 0, u32::MAX);
 
-    let factory_id = props.get(&FACTORY_ID).unwrap().parse::<u32>().unwrap();
-    let client_id = props.get(&CLIENT_ID).unwrap().parse::<u32>().unwrap();
-    let device_api = props.get(&DEVICE_API).unwrap().to_owned();
     let description = props.get(&DEVICE_DESCRIPTION).unwrap().to_owned();
     let name = props.get(&DEVICE_NAME).unwrap().to_owned();
-    let media_class = props.get(&MEDIA_CLASS).unwrap().to_owned();
 
     objects.insert(
         global.id,
         PwObject::Device(PwDevice {
-            factory_id,
-            client_id,
-            device_api,
-            description,
             name,
-            media_class,
+            description,
             routes: Vec::new(),
         }),
     );

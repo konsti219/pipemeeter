@@ -82,7 +82,7 @@ pub enum PwObject {
     // Endpoint,
     // EndpointLink,
     // EndpointStream,
-    Factory(PwFactory),
+    Factory,
     Link(PwLink),
     Metadata(String),
     Module(String),
@@ -96,7 +96,11 @@ pub enum PwObject {
 enum PwProxy {
     Device(pw::device::Device, pw::device::DeviceListener),
     Node(pw::node::Node, pw::node::NodeListener),
-    Port(pw::port::Port, pw::port::PortListener),
+    Port(
+        // We need to keep the listener alive to receive callbacks
+        #[expect(unused)] pw::port::Port,
+        #[expect(unused)] pw::port::PortListener,
+    ),
 }
 
 impl std::fmt::Debug for PwProxy {

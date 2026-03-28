@@ -9,9 +9,6 @@ pub struct PwNode {
     pub media_class: Option<String>,
     pub category: PwNodeCategory,
     pub media_name: Option<String>,
-    // pub factory_id: u32,
-    // pub client_id: Option<u32>,
-    // pub client_api: Option<String>,
     pub device_id: Option<u32>,
     pub process_binary: Option<String>,
     pub input_ports: u32,
@@ -132,9 +129,6 @@ pub(super) fn handle_node_global(
         media_class,
         category,
         media_name: None, // never in the static properties
-        // factory_id: props.get(&FACTORY_ID).unwrap().parse::<u32>().unwrap(),
-        // client_id: props.get(&CLIENT_ID).map(|v| v.parse::<u32>().unwrap()),
-        // client_api: props.get(&CLIENT_API).map(ToOwned::to_owned),
         device_id: props.get(&DEVICE_ID).map(|v| v.parse::<u32>().unwrap()),
         process_binary: None,
         // default to max as we use this for checking if we know all ports of a node.
