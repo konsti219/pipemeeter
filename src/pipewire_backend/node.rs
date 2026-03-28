@@ -122,11 +122,7 @@ pub(super) fn handle_node_global(
 
     // It is importent to immediatly identify our own nodes as such, which why we fallback to
     // the name instead of a custom property.
-    let category = classify_node_category(
-        &name,
-        media_class.as_deref(),
-        props.get(&STREAM_MONITOR).is_some_and(|v| v == "true"),
-    );
+    let category = classify_node_category(&name, media_class.as_deref(), false);
 
     let node = PwNode {
         id: global.id,
@@ -152,7 +148,7 @@ pub(super) fn handle_node_global(
         .borrow_mut()
         .insert(global.id, PwProxy::Node(proxy, listener));
 
-    category.is_user_facing()
+    !matches!(category, PwNodeCategory::Other)
 }
 
 fn classify_media_class(media_class: Option<&str>) -> PwNodeCategory {
@@ -174,8 +170,10 @@ fn classify_media_class(media_class: Option<&str>) -> PwNodeCategory {
 }
 
 fn classify_node_category(name: &str, media_class: Option<&str>, monitor: bool) -> PwNodeCategory {
+    let media_class = classify_media_class(media_class);
+
     if name.starts_with(VIRTUAL_DEVICE_PREFIX) {
-        if monitor {
+        if monitor || matches!(media_class, PwNodeCategory::RecordingStream) {
             return PwNodeCategory::PipemeeterMeter;
         } else {
             return PwNodeCategory::PipemeeterNode;
@@ -186,7 +184,7 @@ fn classify_node_category(name: &str, media_class: Option<&str>, monitor: bool) 
         return PwNodeCategory::Other;
     }
 
-    classify_media_class(media_class)
+    media_class
 }
 
 pub(super) fn set_node_volume_impl(

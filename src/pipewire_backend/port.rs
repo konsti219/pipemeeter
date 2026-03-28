@@ -9,6 +9,7 @@ pub enum PortDirection {
 #[derive(Debug, Clone)]
 pub struct PwPort {
     pub node_id: u32,
+    pub category: PwNodeCategory,
     pub port_id: u32,
     pub name: String,
     pub object_path: String,
@@ -27,7 +28,7 @@ pub(super) fn handle_port_global(
     objects_for_updates: &Arc<Mutex<PwState>>,
     registry: &pw::registry::RegistryRc,
     proxies: &Rc<RefCell<PwProxies>>,
-) {
+) -> bool {
     let object_id = global.id;
     let objects_for_port_info = objects_for_updates.clone();
 
@@ -72,10 +73,16 @@ pub(super) fn handle_port_global(
         .unwrap_or(false);
     let physical = props.get(&PORT_PHYSICAL).map(|v| v == "true");
 
+    let category = match objects.get(&node_id).unwrap() {
+        PwObject::Node(node) => node.category,
+        _ => unreachable!("port's node is not a node"),
+    };
+
     objects.insert(
         global.id,
         PwObject::Port(PwPort {
             node_id,
+            category,
             port_id,
             name,
             object_path,
@@ -90,4 +97,6 @@ pub(super) fn handle_port_global(
     proxies
         .borrow_mut()
         .insert(global.id, PwProxy::Port(proxy, listener));
+
+    !matches!(category, PwNodeCategory::Other)
 }

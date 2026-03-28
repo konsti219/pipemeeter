@@ -411,6 +411,7 @@ pub fn pipewire_worker(
                 //     "object added: id={} type={} props={:?}",
                 //     global.id, global.type_, props
                 // );
+                let mut rebuild = false;
 
                 let mut objects = state_add.objects.lock().unwrap();
                 match global.type_ {
@@ -450,7 +451,7 @@ pub fn pipewire_worker(
                         objects.insert(global.id, PwObject::Module(name));
                     }
                     ObjectType::Node => {
-                        handle_node_global(
+                        rebuild = handle_node_global(
                             global,
                             props,
                             &mut objects,
@@ -460,7 +461,7 @@ pub fn pipewire_worker(
                         );
                     }
                     ObjectType::Port => {
-                        handle_port_global(
+                        rebuild = handle_port_global(
                             global,
                             props,
                             &mut objects,
@@ -506,25 +507,33 @@ pub fn pipewire_worker(
                 }
                 drop(objects);
 
-                if matches!(
-                    global.type_,
-                    ObjectType::Node | ObjectType::Port | ObjectType::Link
-                ) {
+                // TODO (?): maybe also rebuild on certain link changes
+                if rebuild {
+                    info!(
+                        "rebuilding routing state because new object was added: id={} type={}",
+                        global.id, global.type_
+                    );
                     state_add.set_rebuild_timer();
                 }
             })
             .global_remove(move |id| {
                 let mut objects = state_remove.objects.lock().unwrap();
                 let removed = objects.remove(&id);
-                if removed.is_none() {
-                    warn!("object removed but not found in state: id={id}");
-                } else {
-                    if matches!(
-                        removed,
-                        Some(PwObject::Node(_)) | Some(PwObject::Port(_)) | Some(PwObject::Link(_))
-                    ) {
+                if let Some(removed) = removed {
+                    let category = match removed {
+                        PwObject::Node(node) => node.category,
+                        PwObject::Port(port) => port.category,
+                        _ => PwNodeCategory::Other,
+                    };
+                    if !matches!(category, PwNodeCategory::Other) {
+                        info!(
+                            "rebuilding routing state because object was removed: id={} category={:?}",
+                            id, category
+                        );
                         state_remove.set_rebuild_timer();
                     }
+                } else {
+                    warn!("object removed but not found in state: id={id}");
                 }
                 state_remove.proxies.borrow_mut().remove(&id);
                 drop(objects);

@@ -124,7 +124,6 @@ fn create_meter_tap(
         *pw::keys::MEDIA_CATEGORY => "Capture",
         *pw::keys::MEDIA_ROLE => "DSP",
         *pw::keys::NODE_NAME => format!("{}{node_id}", METER_STREAM_NODE_PREFIX),
-        *pw::keys::STREAM_MONITOR => "true",
     };
 
     let stream = pw::stream::StreamRc::new(
