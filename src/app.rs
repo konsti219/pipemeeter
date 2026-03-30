@@ -10,7 +10,9 @@ mod routing;
 mod strip_ui;
 mod types;
 
-use crate::config::{AppConfig, NodeMatchRequirement, config_path, load_config, save_config};
+use crate::config::{
+    AppConfig, NodeMatchRequirement, StripConfig, config_path, load_config, save_config,
+};
 use crate::pipewire_backend::{PipewireBackend, PwNodeCategory, PwStateExt};
 use types::{EditDialogState, Group, StripTarget};
 
@@ -60,17 +62,19 @@ impl PipeMeeterApp {
         }
     }
 
-    pub fn desired_viewport_size(&self) -> egui::Vec2 {
-        const GAP: f32 = 22.0;
+    const INPUT_WIDTH: f32 = 125.0;
+    const OUTPUT_WIDTH: f32 = 81.0;
+    const GAP: f32 = 22.0;
 
+    pub fn desired_viewport_size(&self) -> egui::Vec2 {
         let config = self.config.lock().unwrap();
 
         let input_strips =
             config.physical_inputs.len().max(1) as f32 + config.virtual_inputs.len().max(1) as f32;
         let output_strips = (config.physical_outputs.len() as f32).max(1.35)
             + (config.virtual_outputs.len() as f32).max(1.35);
-        let width = (input_strips * 140.0 + output_strips * 90.0)
-            + GAP * (input_strips + output_strips - 1.0);
+        let width = (input_strips * Self::INPUT_WIDTH + output_strips * Self::OUTPUT_WIDTH)
+            + Self::GAP * (input_strips + output_strips - 1.0);
 
         egui::vec2(width + 16.0, 390.0)
         // egui::vec2(2500.0, 1200.0)
@@ -124,6 +128,64 @@ impl PipeMeeterApp {
         match group {
             Group::Physical => format!("Phys Out {}", count + 1),
             Group::Virtual => format!("Virt Out {}", count + 1),
+        }
+    }
+
+    fn build_default_routes_for_input(
+        input_category: PwNodeCategory,
+        config: &AppConfig,
+    ) -> Vec<bool> {
+        let mut routes = Vec::new();
+
+        let val = matches!(input_category, PwNodeCategory::PlaybackStream);
+        routes.extend(std::iter::repeat(val).take(config.physical_outputs.len()));
+        routes.extend(std::iter::repeat(!val).take(config.virtual_outputs.len()));
+
+        routes
+    }
+
+    fn add_strip_for_category(&mut self, category: PwNodeCategory, config: &mut AppConfig) {
+        match category {
+            PwNodeCategory::InputDevice => {
+                let name = Self::default_input_name(Group::Physical, config.physical_inputs.len());
+                let mut strip = StripConfig::new(name);
+                strip.routes_to_outputs =
+                    Self::build_default_routes_for_input(PwNodeCategory::InputDevice, config);
+                config.physical_inputs.push(strip);
+            }
+            PwNodeCategory::PlaybackStream => {
+                let name = Self::default_input_name(Group::Virtual, config.virtual_inputs.len());
+                let mut strip = StripConfig::new(name);
+                strip.routes_to_outputs =
+                    Self::build_default_routes_for_input(PwNodeCategory::PlaybackStream, config);
+                config.virtual_inputs.push(strip);
+            }
+            PwNodeCategory::OutputDevice => {
+                let insert_idx = config.physical_outputs.len();
+                let name =
+                    Self::default_output_name(Group::Physical, config.physical_outputs.len());
+                config.physical_outputs.push(StripConfig::new(name));
+
+                for input in &mut config.physical_inputs {
+                    input.routes_to_outputs.insert(insert_idx, false);
+                }
+                for input in &mut config.virtual_inputs {
+                    input.routes_to_outputs.insert(insert_idx, true);
+                }
+            }
+            PwNodeCategory::RecordingStream => {
+                let insert_idx = config.output_count();
+                let name = Self::default_output_name(Group::Virtual, config.virtual_outputs.len());
+                config.virtual_outputs.push(StripConfig::new(name));
+
+                for input in &mut config.physical_inputs {
+                    input.routes_to_outputs.insert(insert_idx, true);
+                }
+                for input in &mut config.virtual_inputs {
+                    input.routes_to_outputs.insert(insert_idx, false);
+                }
+            }
+            _ => {}
         }
     }
 

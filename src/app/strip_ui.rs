@@ -1,7 +1,7 @@
 use eframe::egui;
 
 use crate::{
-    config::{AppConfig, StripConfig},
+    config::AppConfig,
     pipewire_backend::{PwNodeCategory, PwState},
     volume::slider_to_pipewire_linear,
 };
@@ -23,27 +23,28 @@ impl PipeMeeterApp {
             Group::Physical => config.physical_inputs.len(),
             Group::Virtual => config.virtual_inputs.len(),
         };
+        let category = match group {
+            Group::Physical => PwNodeCategory::InputDevice,
+            Group::Virtual => PwNodeCategory::PlaybackStream,
+        };
 
         ui.vertical(|ui| {
-            ui.set_width(162.0 * len.max(1) as f32 - 22.0);
-            let mut add_requested = false;
+            ui.set_width((Self::INPUT_WIDTH + Self::GAP) * len.max(1) as f32 - Self::GAP);
             let mut open_dialog_target = None;
 
             ui.horizontal(|ui| {
                 ui.heading(title);
-                if ui.button("+ Add").clicked() {
-                    add_requested = true;
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("+ Add").clicked() {
+                        self.add_strip_for_category(category, config);
+                        *dirty = true;
+                    }
+                });
             });
 
             ui.separator();
 
             ui.horizontal(|ui| {
-                let category = match group {
-                    Group::Physical => PwNodeCategory::InputDevice,
-                    Group::Virtual => PwNodeCategory::PlaybackStream,
-                };
-
                 for index in 0..len {
                     let target = StripTarget::new(index, category);
                     let resolved_node_title =
@@ -61,7 +62,7 @@ impl PipeMeeterApp {
                     };
 
                     ui.vertical(|ui| {
-                        ui.set_width(140.0);
+                        ui.set_width(Self::INPUT_WIDTH);
 
                         if let Some((line1, line2)) = resolved_node_title {
                             if draw_strip_header(ui, &strip.name, &line1, line2.as_deref(), false) {
@@ -143,26 +144,6 @@ impl PipeMeeterApp {
                 }
             });
 
-            if add_requested {
-                let output_count = config.output_count();
-                let strip = match group {
-                    Group::Physical => {
-                        let name = Self::default_input_name(group, config.physical_inputs.len());
-                        StripConfig::with_routes(name, output_count)
-                    }
-                    Group::Virtual => {
-                        let name = Self::default_input_name(group, config.virtual_inputs.len());
-                        StripConfig::with_routes(name, output_count)
-                    }
-                };
-
-                match group {
-                    Group::Physical => config.physical_inputs.push(strip),
-                    Group::Virtual => config.virtual_inputs.push(strip),
-                }
-                *dirty = true;
-            }
-
             if let Some(target) = open_dialog_target {
                 self.open_edit_dialog_from_config(target, config);
             }
@@ -182,27 +163,28 @@ impl PipeMeeterApp {
             Group::Physical => config.physical_outputs.len(),
             Group::Virtual => config.virtual_outputs.len(),
         };
+        let category = match group {
+            Group::Physical => PwNodeCategory::OutputDevice,
+            Group::Virtual => PwNodeCategory::RecordingStream,
+        };
 
         ui.vertical(|ui| {
-            ui.set_width(112.0 * len.max(1) as f32 - 22.0);
-            let mut add_requested = false;
+            ui.set_width((Self::OUTPUT_WIDTH + Self::GAP) * len.max(1) as f32 - Self::GAP);
             let mut open_dialog_target = None;
 
             ui.horizontal(|ui| {
                 ui.heading(title);
-                if ui.button("+ Add").clicked() {
-                    add_requested = true;
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("+ Add").clicked() {
+                        self.add_strip_for_category(category, config);
+                        *dirty = true;
+                    }
+                });
             });
 
             ui.separator();
 
             ui.horizontal(|ui| {
-                let category = match group {
-                    Group::Physical => PwNodeCategory::OutputDevice,
-                    Group::Virtual => PwNodeCategory::RecordingStream,
-                };
-
                 for index in 0..len {
                     let target = StripTarget::new(index, category);
                     let resolved_node_title =
@@ -220,7 +202,7 @@ impl PipeMeeterApp {
                     };
 
                     ui.vertical(|ui| {
-                        ui.set_width(90.0);
+                        ui.set_width(Self::OUTPUT_WIDTH);
 
                         if let Some((line1, line2)) = resolved_node_title {
                             if draw_strip_header(ui, &strip.name, &line1, line2.as_deref(), false) {
@@ -282,21 +264,6 @@ impl PipeMeeterApp {
                     }
                 }
             });
-
-            if add_requested {
-                match group {
-                    Group::Physical => {
-                        let name = Self::default_output_name(group, config.physical_outputs.len());
-                        config.physical_outputs.push(StripConfig::new(name));
-                    }
-                    Group::Virtual => {
-                        let name = Self::default_output_name(group, config.virtual_outputs.len());
-                        config.virtual_outputs.push(StripConfig::new(name));
-                    }
-                }
-                config.normalize();
-                *dirty = true;
-            }
 
             if let Some(target) = open_dialog_target {
                 self.open_edit_dialog_from_config(target, config);
