@@ -5,6 +5,7 @@ use log::error;
 
 mod app;
 mod config;
+mod ipc;
 mod pipewire_backend;
 mod volume;
 

@@ -152,6 +152,21 @@ pub struct PipewireBackend {
     handle: Option<JoinHandle<Result<()>>>,
 }
 
+/// Cloneable, `Send` handle that lets other threads (e.g. the control socket)
+/// ask the worker to re-reconcile the routing graph. A reconcile re-applies each
+/// virtual input strip's configured volume onto its combined node, so this is how
+/// an external config change to `strip.volume` gets pushed into PipeWire.
+#[derive(Clone)]
+pub struct RoutingTrigger(pw::channel::Sender<BackendCommand>);
+
+impl RoutingTrigger {
+    pub fn trigger(&self) -> Result<()> {
+        self.0
+            .send(BackendCommand::UpdateRouting)
+            .map_err(|_| anyhow::anyhow!("failed to send command to PipeWire worker"))
+    }
+}
+
 impl PipewireBackend {
     pub fn new(config: Arc<Mutex<AppConfig>>) -> Result<Self> {
         let objects = Arc::new(Mutex::new(HashMap::new()));
@@ -193,6 +208,10 @@ impl PipewireBackend {
         self.command_tx
             .send(BackendCommand::UpdateRouting)
             .map_err(|_| anyhow::anyhow!("failed to send command to PipeWire worker"))
+    }
+
+    pub fn routing_trigger(&self) -> RoutingTrigger {
+        RoutingTrigger(self.command_tx.clone())
     }
 
     pub fn node_peak_meter(&self, node_id: u32) -> [f32; 2] {

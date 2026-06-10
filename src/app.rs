@@ -52,6 +52,12 @@ impl PipeMeeterApp {
 
         let backend = PipewireBackend::new(config.clone()).unwrap();
 
+        crate::ipc::spawn_control_socket(
+            config.clone(),
+            config_path.clone(),
+            backend.routing_trigger(),
+        );
+
         Self {
             config_path,
             config,
