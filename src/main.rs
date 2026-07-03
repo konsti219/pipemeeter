@@ -1,18 +1,27 @@
 use anyhow::Context;
 use app::PipeMeeterApp;
 use eframe::egui;
-use log::error;
+use log::{error, info};
 
 mod app;
 mod config;
 mod ipc;
 mod pipewire_backend;
+mod session;
 mod volume;
 
 fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
         .init();
+
+    // Register with the session manager so logout/shutdown quits the app cleanly
+    // regardless of window state (minimized, occluded, or visible). A minimized
+    // Wayland window is never sent `close` by the compositor, so without this the
+    // app would block logout; here the session manager tells us to quit directly.
+    if let Err(err) = session::connect() {
+        info!("session management unavailable: {err}");
+    }
 
     let icon = load_app_icon()?;
     let app = PipeMeeterApp::new();
@@ -29,7 +38,12 @@ fn main() -> anyhow::Result<()> {
         error!("failed to run egui app: {err}");
     }
 
-    Ok(())
+    // Exit the process directly instead of unwinding `main`: dropping eframe tears
+    // down egui-winit's clipboard, whose worker thread races destroying Wayland
+    // proxies on shutdown and intermittently segfaults or deadlocks (reported by
+    // the compositor as "not responding"). Nothing needs unwinding — the config
+    // is persisted eagerly on edit — so terminate immediately.
+    std::process::exit(0);
 }
 
 fn load_app_icon() -> anyhow::Result<egui::IconData> {

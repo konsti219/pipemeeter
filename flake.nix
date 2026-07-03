@@ -19,6 +19,8 @@
       };
       llvmPkgs = pkgs.llvmPackages;
       runtimeLibs = [
+        pkgs.libsm
+        pkgs.libice
         pkgs.wayland
         pkgs.libxkbcommon
         pkgs.libx11
@@ -66,6 +68,8 @@
           pkgs.libxrandr
           pkgs.libxinerama
           pkgs.libxcb
+          pkgs.libsm
+          pkgs.libice
         ];
 
         LIBCLANG_PATH = "${llvmPkgs.libclang.lib}/lib";
@@ -121,6 +125,8 @@
           pkgs.libxrandr
           pkgs.libxinerama
           pkgs.libxcb
+          pkgs.libsm
+          pkgs.libice
         ];
 
         LIBCLANG_PATH = "${llvmPkgs.libclang.lib}/lib";
