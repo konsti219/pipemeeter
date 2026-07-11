@@ -28,10 +28,11 @@ static MAX_NODES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsiz
 pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result<()> {
     info!("graph change: create virtual node name='{name}'",);
 
-    // return Ok(());
-
     let current = MAX_NODES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    if current >= 4 {
+    if current >= 16 {
+        warn!(
+            "graph change: create virtual node name='{name}' failed: too many nodes (current={current})"
+        );
         return Ok(());
     }
 
