@@ -15,6 +15,8 @@ use pw::types::ObjectType;
 
 use crate::config::AppConfig;
 
+mod default_routing;
+use default_routing::*;
 mod device;
 use device::*;
 mod factory;

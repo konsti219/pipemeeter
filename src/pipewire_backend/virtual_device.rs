@@ -1,6 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use super::*;
+use crate::config::AppConfig;
 
 pub const VIRTUAL_DEVICE_PREFIX: &str = "pipemeeter/";
 
@@ -25,8 +26,12 @@ fn destroy_nodes_by_id(
 
 static MAX_NODES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result<()> {
-    info!("graph change: create virtual node name='{name}'",);
+pub fn create_virtual_device_impl(
+    core: &pw::core::CoreRc,
+    name: &str,
+    media_class: &str,
+) -> Result<()> {
+    info!("graph change: create virtual node name='{name}' media.class='{media_class}'");
 
     let current = MAX_NODES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     if current >= 16 {
@@ -44,7 +49,7 @@ pub fn create_virtual_device_impl(core: &pw::core::CoreRc, name: &str) -> Result
                 "node.name" => name,
                 "node.description" => name,
                 "media.type" => "Audio",
-                "media.class" => "Audio/Sink/Virtual",
+                "media.class" => media_class,
                 "node.virtual" => "true",
                 "device.class" => "filter",
                 "audio.channels" => "2",
@@ -62,9 +67,15 @@ pub fn sync_managed_virtual_devices_impl(
     core: &pw::core::CoreRc,
     registry: &pw::registry::RegistryRc,
     objects: &Arc<Mutex<PwState>>,
-    desired_names: &[String],
+    config: &AppConfig,
 ) -> Result<()> {
-    let desired_set = desired_names.iter().cloned().collect::<HashSet<_>>();
+    let desired = (0..config.virtual_inputs.len())
+        .map(|i| (virtual_input_combined_name(i), "Audio/Sink/Virtual"))
+        .chain(
+            (0..config.virtual_outputs.len())
+                .map(|i| (virtual_output_combined_name(i), "Audio/Source/Virtual")),
+        )
+        .collect::<Vec<_>>();
 
     let existing_by_name = {
         let state = objects.lock().unwrap();
@@ -90,19 +101,19 @@ pub fn sync_managed_virtual_devices_impl(
     };
 
     for (name, ids) in &existing_by_name {
-        if !desired_set.contains(name) {
+        if !desired.iter().any(|(desired_name, _)| desired_name == name) {
             destroy_nodes_by_id(registry, ids.iter().copied(), "no longer desired")?;
         }
     }
 
-    for name in &desired_set {
+    for (name, media_class) in &desired {
         match existing_by_name.get(name) {
             None => {
-                create_virtual_device_impl(core, name)?;
+                create_virtual_device_impl(core, name, media_class)?;
             }
             Some(ids) if ids.len() > 1 => {
                 destroy_nodes_by_id(registry, ids.iter().copied(), "deduplicate managed nodes")?;
-                create_virtual_device_impl(core, name)?;
+                create_virtual_device_impl(core, name, media_class)?;
             }
             Some(_) => {}
         }

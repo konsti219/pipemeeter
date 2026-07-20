@@ -82,18 +82,18 @@ fn reconcile_routing_state(state: &BackendState) -> Result<()> {
 
     info!("reconciling routing state");
 
-    // Always lock config before objects to avoid lock-order inversion.
+    // Always lock config before objects
     let mut config = state.config.lock().unwrap();
     let pw_state = state.objects.lock().unwrap().clone();
 
     resolve_nodes(&mut config, &pw_state);
 
-    sync_managed_virtual_devices_impl(
-        &state.core,
-        &state.registry,
-        &state.objects,
-        &managed_virtual_strip_names(&config),
-    )?;
+    sync_managed_virtual_devices_impl(&state.core, &state.registry, &state.objects, &config)?;
+
+    // Set wireplumber default routes to our Default strips
+    let default_routing = state.default_routing.borrow();
+    default_routing.ensure_default_sink(&virtual_input_combined_name(0));
+    default_routing.ensure_default_source(&virtual_output_combined_name(0));
 
     if !all_nodes_have_known_ports(&pw_state) {
         info!("routing reconcile deferred because not all node ports are known yet");
@@ -144,6 +144,7 @@ struct BackendState {
     objects: Arc<Mutex<PwState>>,
     proxies: Rc<RefCell<PwProxies>>,
     meter_manager: Rc<RefCell<MeterManager>>,
+    default_routing: Rc<RefCell<DefaultRouting>>,
 
     cmd_tx: CmdSender,
     initialized: Rc<Cell<bool>>,
@@ -191,6 +192,7 @@ pub fn pipewire_worker(
             config,
             proxies: Rc::new(RefCell::new(PwProxies::new())),
             meter_manager: Rc::new(RefCell::new(MeterManager::new(meters))),
+            default_routing: Rc::new(RefCell::new(DefaultRouting::new())),
             objects,
             cmd_tx: CmdSender(cmd_tx),
             initialized: Rc::new(Cell::new(false)),
@@ -287,6 +289,12 @@ pub fn pipewire_worker(
                     }
                     ObjectType::Metadata => {
                         let name = props.get("metadata.name").unwrap().to_owned();
+                        if name == "default" {
+                            state_add
+                                .default_routing
+                                .borrow_mut()
+                                .attach(&state_add.registry, global);
+                        }
                         objects.insert(global.id, PwObject::Metadata(name));
                     }
                     ObjectType::Module => {
@@ -356,6 +364,10 @@ pub fn pipewire_worker(
                 }
             })
             .global_remove(move |id| {
+                state_remove
+                    .default_routing
+                    .borrow_mut()
+                    .handle_global_remove(id);
                 let mut objects = state_remove.objects.lock().unwrap();
                 let removed = objects.remove(&id);
                 if let Some(removed) = removed {
@@ -408,6 +420,7 @@ pub fn pipewire_worker(
             }
             BackendCommand::Shutdown { reply } => {
                 state_cmd.shutdown.set(true);
+                state_cmd.default_routing.borrow().restore();
                 state_cmd.meter_manager.as_ref().borrow_mut().clear();
                 if let Err(err) =
                     remove_managed_virtual_devices_impl(&state_cmd.registry, &state_cmd.objects)
