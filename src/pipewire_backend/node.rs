@@ -150,6 +150,10 @@ fn classify_media_class(media_class: Option<&str>) -> PwNodeCategory {
         return PwNodeCategory::Other;
     };
 
+    if media_class.starts_with("Audio/Source/Virtual") {
+        return PwNodeCategory::Other;
+    }
+
     if media_class.starts_with("Audio/Sink") {
         PwNodeCategory::OutputDevice
     } else if media_class.starts_with("Audio/Source") {
