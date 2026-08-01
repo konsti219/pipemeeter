@@ -157,10 +157,23 @@ fn resolve_virtual_strips(
     }
 }
 
+// When a node explicitly targets another node, that we coinsider unmanaged, consider
+// it unmanaged as well. For example vesktops venmic for screenshare audio.
+fn targets_unmanaged_node(node: &PwNode, state: &PwState) -> bool {
+    let Some(target) = node.target_object.as_deref() else {
+        return false;
+    };
+
+    state
+        .nodes()
+        .any(|other| other.name == target && matches!(other.category, PwNodeCategory::Other))
+}
+
 pub fn resolve_nodes(config: &mut AppConfig, state: &PwState) {
     let mut nodes = state
         .nodes()
         .filter(|node| !node.category.is_pipemeeter())
+        .filter(|node| !targets_unmanaged_node(node, state))
         .collect::<Vec<_>>();
     nodes.sort_by_key(|node| node.id);
 

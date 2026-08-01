@@ -11,6 +11,7 @@ pub struct PwNode {
     pub media_name: Option<String>,
     pub device_id: Option<u32>,
     pub process_binary: Option<String>,
+    pub target_object: Option<String>,
     pub input_ports: u32,
     pub output_ports: u32,
     pub volume: [f32; 2],
@@ -87,6 +88,10 @@ pub(super) fn handle_node_global(
                     node.process_binary = Some(process_binary);
                 }
 
+                if let Some(target_object) = props.get(&TARGET_OBJECT).owned() {
+                    node.target_object = Some(target_object);
+                }
+
                 let media_class = props.get(&MEDIA_CLASS).owned();
                 let media_class = media_class.or_else(|| node.media_class.clone());
                 let monitor = props.get(&STREAM_MONITOR).map_or(false, |v| v == "true");
@@ -131,6 +136,7 @@ pub(super) fn handle_node_global(
         media_name: None, // never in the static properties
         device_id: props.get(&DEVICE_ID).map(|v| v.parse::<u32>().unwrap()),
         process_binary: None,
+        target_object: props.get(&TARGET_OBJECT).owned(),
         // default to max as we use this for checking if we know all ports of a node.
         // we update this in the info callback
         input_ports: u32::MAX,
