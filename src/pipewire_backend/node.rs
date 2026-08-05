@@ -61,46 +61,58 @@ pub(super) fn handle_node_global(
     objects_for_updates: &Arc<Mutex<PwState>>,
     registry: &pw::registry::RegistryRc,
     proxies: &Rc<RefCell<PwProxies>>,
+    cmd_tx: &pw::channel::Sender<BackendCommand>,
 ) -> bool {
     let node_id = global.id;
     let objects_info = objects_for_updates.clone();
     let objects_param = objects_for_updates.clone();
+    let cmd_tx_info = cmd_tx.clone();
     let proxy = registry.bind::<pw::node::Node, _>(global).unwrap();
     let listener = proxy
         .add_listener_local()
         .info(move |info| {
             let mut objects = objects_info.lock().unwrap();
+            let mut routing_relevant_change = false;
             if let Some(PwObject::Node(node)) = objects.get_mut(&node_id) {
                 node.input_ports = info.n_input_ports();
                 node.output_ports = info.n_output_ports();
 
-                let Some(props) = info.props() else {
-                    return;
-                };
+                if let Some(props) = info.props() {
+                    // Nodes do not loose properties and info updates only contain changed properties, so do merging
 
-                // Nodes do not loose properties and info updates only contain changed properties, so do merging
+                    if let Some(media_name) = props.get(&MEDIA_NAME).owned() {
+                        node.media_name = Some(media_name);
+                        routing_relevant_change = true;
+                    }
 
-                if let Some(media_name) = props.get(&MEDIA_NAME).owned() {
-                    node.media_name = Some(media_name);
+                    if let Some(process_binary) = props.get(&APP_PROCESS_BINARY).owned() {
+                        node.process_binary = Some(process_binary);
+                        routing_relevant_change = true;
+                    }
+
+                    if let Some(target_object) = props.get(&TARGET_OBJECT).owned() {
+                        node.target_object = Some(target_object);
+                        routing_relevant_change = true;
+                    }
+
+                    let media_class = props.get(&MEDIA_CLASS).owned();
+                    if media_class.is_some() {
+                        routing_relevant_change = true;
+                    }
+                    let media_class = media_class.or_else(|| node.media_class.clone());
+                    let monitor = props.get(&STREAM_MONITOR).map_or(false, |v| v == "true");
+
+                    // Only attempt to reclassify if it is not already detected as a special node.
+                    if node.category.is_user_facing() {
+                        node.category =
+                            classify_node_category(&node.name, media_class.as_deref(), monitor);
+                    }
                 }
+            }
+            drop(objects);
 
-                if let Some(process_binary) = props.get(&APP_PROCESS_BINARY).owned() {
-                    node.process_binary = Some(process_binary);
-                }
-
-                if let Some(target_object) = props.get(&TARGET_OBJECT).owned() {
-                    node.target_object = Some(target_object);
-                }
-
-                let media_class = props.get(&MEDIA_CLASS).owned();
-                let media_class = media_class.or_else(|| node.media_class.clone());
-                let monitor = props.get(&STREAM_MONITOR).map_or(false, |v| v == "true");
-
-                // Only attempt to reclassify if it is not already detected as a special node.
-                if node.category.is_user_facing() {
-                    node.category =
-                        classify_node_category(&node.name, media_class.as_deref(), monitor);
-                }
+            if routing_relevant_change {
+                let _ = cmd_tx_info.send(BackendCommand::ResetTimer);
             }
         })
         .param(move |_seq, _id, _index, _next, param| {

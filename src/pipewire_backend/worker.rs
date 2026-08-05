@@ -309,6 +309,7 @@ pub fn pipewire_worker(
                             &state_add.objects,
                             &state_add.registry,
                             &state_add.proxies,
+                            &state_add.cmd_tx.0,
                         );
                     }
                     ObjectType::Port => {
