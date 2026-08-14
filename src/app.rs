@@ -5,6 +5,7 @@ use eframe::egui;
 use log::error;
 
 mod dialog_ui;
+mod graph;
 mod node_resolution;
 mod routing;
 mod strip_ui;
@@ -25,6 +26,7 @@ pub struct PipeMeeterApp {
     status: String,
     edit_dialog: Option<EditDialogState>,
     last_viewport_size: Option<egui::Vec2>,
+    graph_window: graph::GraphWindow,
 }
 
 impl PipeMeeterApp {
@@ -65,6 +67,7 @@ impl PipeMeeterApp {
             status: "Ready".to_owned(),
             edit_dialog: None,
             last_viewport_size: None,
+            graph_window: graph::GraphWindow::default(),
         }
     }
 
@@ -338,8 +341,17 @@ impl eframe::App for PipeMeeterApp {
         egui::TopBottomPanel::bottom("status_footer")
             .resizable(false)
             .show(ctx, |ui| {
-                ui.horizontal_wrapped(|ui| {
+                ui.horizontal(|ui| {
                     ui.label(self.status.clone());
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .button("Graph")
+                            .on_hover_text("Show the PipeWire audio graph in a separate window")
+                            .clicked()
+                        {
+                            self.graph_window.toggle();
+                        }
+                    });
                 });
             });
 
@@ -423,5 +435,7 @@ impl eframe::App for PipeMeeterApp {
         }
 
         self.show_edit_dialog(ctx);
+        self.graph_window
+            .show(ctx, &objects_snapshot, &config_handle.lock().unwrap());
     }
 }
