@@ -76,23 +76,17 @@ impl GraphWindow {
                 .with_app_id("pipemeeter")
                 .with_inner_size([1200.0, 780.0])
                 .with_active(true),
-            |ctx, class| {
-                if matches!(class, egui::ViewportClass::Embedded) {
-                    // No multi-window support: fall back to a floating window.
-                    let mut open = true;
-                    egui::Window::new("Pipemeeter Graph")
-                        .open(&mut open)
-                        .default_size([900.0, 600.0])
-                        .show(ctx, |ui| self.contents(ui, state, config));
-                    keep_open = open;
+            |ui, class| {
+                if matches!(class, egui::ViewportClass::EmbeddedWindow) {
+                    self.contents(ui, state, config);
                     return;
                 }
 
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
-                    .show(ctx, |ui| self.contents(ui, state, config));
+                    .show(ui, |ui| self.contents(ui, state, config));
 
-                if ctx.input(|i| i.viewport().close_requested()) {
+                if ui.input(|i| i.viewport().close_requested()) {
                     keep_open = false;
                 }
             },
@@ -114,11 +108,11 @@ impl GraphWindow {
             self.needs_fit |= !self.view_is_theirs;
         }
 
-        egui::TopBottomPanel::top("graph_toolbar").show_inside(ui, |ui| self.toolbar(ui, &model));
+        egui::Panel::top("graph_toolbar").show(ui, |ui| self.toolbar(ui, &model));
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
-            .show_inside(ui, |ui| self.canvas(ui, &model));
+            .show(ui, |ui| self.canvas(ui, &model));
     }
 
     fn toolbar(&mut self, ui: &mut egui::Ui, model: &GraphModel) {
@@ -493,7 +487,7 @@ pub fn category_color(category: PwNodeCategory) -> Color32 {
         PwNodeCategory::PlaybackStream => Color32::from_rgb(245, 166, 35),
         PwNodeCategory::RecordingStream => Color32::from_rgb(171, 92, 216),
         PwNodeCategory::PipemeeterNode => Color32::from_rgb(0, 188, 212),
-        PwNodeCategory::PipemeeterMeter => Color32::from_rgb(120, 144, 156),
+        PwNodeCategory::PipemeeterMeter => Color32::from_rgb(200, 110, 140),
         PwNodeCategory::Other => Color32::from_rgb(130, 130, 134),
     }
 }

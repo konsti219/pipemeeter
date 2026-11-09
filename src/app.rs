@@ -322,7 +322,8 @@ impl PipeMeeterApp {
 }
 
 impl eframe::App for PipeMeeterApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = &ui.ctx().clone();
         self.apply_viewport_size(ctx);
         ctx.request_repaint();
 
@@ -338,9 +339,9 @@ impl eframe::App for PipeMeeterApp {
         self.refresh_resolved_nodes_with_state(&mut config, &objects_snapshot);
         let output_labels = config.output_labels();
 
-        egui::TopBottomPanel::bottom("status_footer")
+        egui::Panel::bottom("status_footer")
             .resizable(false)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(self.status.clone());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -355,7 +356,7 @@ impl eframe::App for PipeMeeterApp {
                 });
             });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.vertical(|ui| {
                 ui.horizontal(|ui| {
                     ui.set_height(300.0);
