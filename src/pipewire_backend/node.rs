@@ -101,11 +101,16 @@ pub(super) fn handle_node_global(
                     }
                     let media_class = media_class.or_else(|| node.media_class.clone());
                     let monitor = props.get(&STREAM_MONITOR).map_or(false, |v| v == "true");
+                    let dont_move = props.get("node.dont-move").map_or(false, |v| v == "true");
 
                     // Only attempt to reclassify if it is not already detected as a special node.
                     if node.category.is_user_facing() {
-                        node.category =
-                            classify_node_category(&node.name, media_class.as_deref(), monitor);
+                        node.category = classify_node_category(
+                            &node.name,
+                            media_class.as_deref(),
+                            monitor,
+                            dont_move,
+                        );
                     }
                 }
             }
@@ -136,7 +141,7 @@ pub(super) fn handle_node_global(
 
     // It is importent to immediatly identify our own nodes as such, which why we fallback to
     // the name instead of a custom property.
-    let category = classify_node_category(&name, media_class.as_deref(), false);
+    let category = classify_node_category(&name, media_class.as_deref(), false, false);
 
     let node = PwNode {
         id: global.id,
@@ -185,7 +190,12 @@ fn classify_media_class(media_class: Option<&str>) -> PwNodeCategory {
     }
 }
 
-fn classify_node_category(name: &str, media_class: Option<&str>, monitor: bool) -> PwNodeCategory {
+fn classify_node_category(
+    name: &str,
+    media_class: Option<&str>,
+    monitor: bool,
+    dont_move: bool,
+) -> PwNodeCategory {
     let media_class = classify_media_class(media_class);
 
     if name.starts_with(VIRTUAL_DEVICE_PREFIX) {
@@ -196,7 +206,7 @@ fn classify_node_category(name: &str, media_class: Option<&str>, monitor: bool) 
         }
     }
 
-    if monitor {
+    if monitor || dont_move {
         return PwNodeCategory::Other;
     }
 
